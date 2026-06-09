@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+.pnp.*
+
+# build output
+dist/
+build/
+.output/
+.wxt/
+*.zip
+
+# environment + secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+
+# test / coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# supabase local stack
+supabase/.branches/
+supabase/.temp/
+
+# misc
+.cache/
+tmp/
