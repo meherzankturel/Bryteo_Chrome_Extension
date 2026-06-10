@@ -1,8 +1,16 @@
 import { defineConfig } from 'wxt';
+import { fileURLToPath } from 'node:url';
+
+const srcPath = fileURLToPath(new URL('./src', import.meta.url));
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   srcDir: '.',
+  vite: () => ({
+    resolve: {
+      alias: { '@': srcPath }
+    }
+  }),
   manifest: {
     name: 'bryteo — Remember what you watch',
     description: 'Turn YouTube videos into AI flashcards with spaced repetition.',
