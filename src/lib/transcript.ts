@@ -28,7 +28,7 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
 
 export function parseTimedTextXml(xml: string): string {
   const matches = [...xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g)];
-  const text = matches.map((m) => decodeEntities(m[1])).join(' ');
+  const text = matches.map((m) => decodeEntities(m[1] ?? '')).join(' ');
   return text.replace(/\s+/g, ' ').trim();
 }
 
