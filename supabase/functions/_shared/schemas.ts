@@ -1,0 +1,37 @@
+import { z } from 'https://esm.sh/zod@3.23.0';
+
+export const outlineRequest = z.object({
+  videoId: z.string().min(1),
+  title: z.string().min(1),
+  channel: z.string().optional(),
+  durationS: z.number().int().optional(),
+  thumbnailUrl: z.string().url().optional(),
+  transcript: z.string().min(50).max(50_000)
+});
+
+export const outlineSection = z.object({
+  title: z.string(),
+  summary: z.string(),
+  start_s: z.number().int().nonnegative(),
+  end_s: z.number().int().nonnegative(),
+  key_points: z.array(z.string()).min(1).max(8)
+});
+
+export const outlineResponse = z.object({
+  sections: z.array(outlineSection).min(1).max(12)
+});
+
+export const cardsRequest = z.object({
+  deckId: z.string().uuid(),
+  outlineSection: outlineSection,
+  style: z.enum(['quick', 'exam', 'deep', 'language'])
+});
+
+export const cardOut = z.object({
+  type: z.enum(['basic', 'cloze']),
+  front: z.string().min(1),
+  back: z.string().min(1),
+  source_ts_s: z.number().int().nonnegative()
+});
+
+export const cardsResponse = z.object({ cards: z.array(cardOut).min(1).max(40) });
