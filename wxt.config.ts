@@ -18,8 +18,7 @@ export default defineConfig({
     permissions: ['storage', 'sidePanel', 'activeTab'],
     host_permissions: ['https://*.youtube.com/*'],
     action: {
-      default_title: 'bryteo',
-      default_popup: 'popup.html'
+      default_title: 'bryteo'
     },
     side_panel: {
       default_path: 'sidepanel.html'
