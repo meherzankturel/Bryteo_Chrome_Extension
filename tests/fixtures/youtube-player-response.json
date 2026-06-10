@@ -1,0 +1,19 @@
+{
+  "videoDetails": {
+    "videoId": "abc123",
+    "title": "How LLMs Work",
+    "author": "Andrej Karpathy",
+    "lengthSeconds": "1234",
+    "thumbnail": { "thumbnails": [{ "url": "https://i.ytimg.com/vi/abc123/hqdefault.jpg" }] }
+  },
+  "captions": {
+    "playerCaptionsTracklistRenderer": {
+      "captionTracks": [
+        {
+          "baseUrl": "https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+          "languageCode": "en"
+        }
+      ]
+    }
+  }
+}
