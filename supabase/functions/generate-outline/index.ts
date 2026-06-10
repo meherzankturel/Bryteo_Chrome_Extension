@@ -3,7 +3,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { getUserFromRequest, serviceClient } from '../_shared/auth.ts';
 import { outlineRequest, outlineResponse } from '../_shared/schemas.ts';
 import { checkAndIncrement } from '../_shared/rate-limit.ts';
-import { anthropic, modelFor } from '../_shared/anthropic.ts';
+import { callGemini, modelFor } from '../_shared/gemini.ts';
 
 const SYSTEM = `You convert YouTube transcripts into structured study outlines.
 Return JSON with this shape:
@@ -44,31 +44,29 @@ serve(async (req) => {
     const model = modelFor(tier);
     const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.\nTranscript:\n${body.transcript}`;
 
-    const aiResp = await anthropic.messages.create({
+    const text = await callGemini({
       model,
-      max_tokens: 4096,
       system: SYSTEM,
-      messages: [{ role: 'user', content: userPrompt }]
+      turns: [{ role: 'user', text: userPrompt }],
+      jsonMode: true
     });
 
-    const text = aiResp.content
-      .filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');
     let parsed: any;
     try { parsed = JSON.parse(text); }
     catch { return jsonErr('ai_invalid_json', 502); }
 
     const outline = outlineResponse.safeParse(parsed);
     if (!outline.success) {
-      const retry = await anthropic.messages.create({
-        model, max_tokens: 4096, system: SYSTEM,
-        messages: [
-          { role: 'user', content: userPrompt },
-          { role: 'assistant', content: text },
-          { role: 'user', content: 'That JSON did not match the schema. Reply again with valid JSON only.' }
-        ]
+      const retryText = await callGemini({
+        model,
+        system: SYSTEM,
+        turns: [
+          { role: 'user', text: userPrompt },
+          { role: 'model', text },
+          { role: 'user', text: 'That JSON did not match the schema. Reply again with valid JSON only.' }
+        ],
+        jsonMode: true
       });
-      const retryText = retry.content
-        .filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');
       try { parsed = JSON.parse(retryText); }
       catch { return jsonErr('ai_invalid_json', 502); }
       const second = outlineResponse.safeParse(parsed);
