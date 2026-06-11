@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useProfile } from '../../src/hooks/use-profile';
 import { useGenerateOutline } from '../../src/hooks/use-outline';
 import { OutlineView } from '../../src/components/OutlineView';
 import { ThemeToggle } from '../../src/components/ThemeToggle';
 
 type Phase = 'idle' | 'outline';
+
+const isMac =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 
 export default function App() {
   const { data: profile } = useProfile();
@@ -26,6 +30,20 @@ export default function App() {
     setPhase('idle');
     gen.reset();
   }
+
+  // Cmd/Ctrl + Enter triggers analyze when side panel has focus
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const accelKey = isMac ? e.metaKey : e.ctrlKey;
+      if (!accelKey) return;
+      if (e.key !== 'Enter') return;
+      if (phase !== 'idle' || gen.isPending) return;
+      e.preventDefault();
+      startAnalyze();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [phase, gen.isPending]);
 
   const cardCount = profile?.card_count ?? 0;
 
@@ -61,7 +79,11 @@ export default function App() {
       {/* Body */}
       <section className="flex-1 overflow-y-auto px-[18px] py-6">
         {phase === 'idle' && !gen.isPending && (
-          <IdleState onAnalyze={startAnalyze} error={gen.error?.message} />
+          <IdleState
+            onAnalyze={startAnalyze}
+            error={gen.error?.message}
+            isMac={isMac}
+          />
         )}
 
         {gen.isPending && <LoadingState />}
@@ -88,7 +110,23 @@ export default function App() {
   );
 }
 
-function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string }) {
+function IdleState({
+  onAnalyze,
+  error,
+  isMac
+}: {
+  onAnalyze: () => void;
+  error?: string;
+  isMac: boolean;
+}) {
+  const ctaRef = useRef<HTMLButtonElement | null>(null);
+
+  // Auto-focus the CTA on mount so the side panel receives keystrokes
+  // (otherwise focus stays on the YouTube page and Cmd+Enter never fires here).
+  useEffect(() => {
+    ctaRef.current?.focus();
+  }, []);
+
   return (
     <div className="text-center pt-[90px]">
       <div
@@ -114,6 +152,7 @@ function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string
         Open a YouTube video and we'll turn it into a study aid you'll actually remember.
       </p>
       <button
+        ref={ctaRef}
         onClick={onAnalyze}
         className="
           inline-flex items-center gap-2 px-[22px] py-[11px] rounded-[7px]
@@ -121,6 +160,7 @@ function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string
           font-semibold text-[13px] tracking-[0.01em]
           transition-all duration-200
           hover:translate-y-[-1px] hover:opacity-90
+          focus:outline-none focus:ring-2 focus:ring-[var(--color-gold)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg)]
         "
         style={{ boxShadow: 'var(--shadow-cta)' }}
         onMouseEnter={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow-cta-hover)')}
@@ -131,7 +171,9 @@ function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string
       </button>
       <div className="mt-[18px] flex justify-center items-center gap-1.5 font-mono text-[11px] text-[var(--color-text-3)]">
         or press
-        <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-text-2)]">⌘</span>
+        <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-text-2)]">
+          {isMac ? '⌘' : 'Ctrl'}
+        </span>
         <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-text-2)]">↵</span>
       </div>
       {error && (
