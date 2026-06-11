@@ -53,15 +53,43 @@ export async function callGemini(opts: {
     body.generationConfig.responseMimeType = 'application/json';
   }
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  const bodyJson = JSON.stringify(body);
+  console.log(
+    `[gemini] → request model=${opts.model} bodyBytes=${bodyJson.length} ` +
+      `maxOutputTokens=${opts.maxOutputTokens ?? 4096}`
+  );
+
+  // Hard timeout — better to fail fast than let the side panel hang.
+  // Supabase Edge Functions cap at 150s; we cap fetch at 90s to leave headroom
+  // for the rest of the function.
+  const controller = new AbortController();
+  const timeoutMs = 90_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const t0 = Date.now();
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyJson,
+      signal: controller.signal
+    });
+  } catch (e: any) {
+    clearTimeout(timer);
+    const elapsed = Date.now() - t0;
+    if (e?.name === 'AbortError') {
+      throw new Error(`Gemini timeout after ${elapsed}ms (limit ${timeoutMs}ms)`);
+    }
+    throw new Error(`Gemini fetch failed after ${elapsed}ms: ${e?.message ?? e}`);
+  }
+  clearTimeout(timer);
+  const elapsed = Date.now() - t0;
+  console.log(`[gemini] ← response status=${resp.status} after ${elapsed}ms`);
 
   if (!resp.ok) {
     const errText = await resp.text();
-    throw new Error(`Gemini API ${resp.status}: ${errText}`);
+    throw new Error(`Gemini API ${resp.status}: ${errText.slice(0, 300)}`);
   }
 
   const data = await resp.json();
