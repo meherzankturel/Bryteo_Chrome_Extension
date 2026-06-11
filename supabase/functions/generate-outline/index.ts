@@ -131,21 +131,34 @@ serve(async (req) => {
         body.chapters && body.chapters.length > CHAPTER_PROMPT_MAX
           ? `\n(Showing first ${CHAPTER_PROMPT_MAX} of ${body.chapters.length} chapters; extend coverage to the end of the video using your judgement for the rest.)`
           : '';
-      chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.\n\nChapters:\n${chapterList}${truncatedNote}`;
+      // For chaptered videos with many chapters, ask for TERSE per-section
+      // output — otherwise the JSON exceeds the output token budget.
+      const terseGuidance =
+        usedChapters.length >= 10
+          ? '\n\nIMPORTANT: Because this video has many chapters, keep each section TERSE — summary 1-2 sentences max, exactly 2 key_points per section, key_points one short phrase each (under 12 words). This is mandatory to fit the response budget.'
+          : '';
+      chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.${terseGuidance}\n\nChapters:\n${chapterList}${truncatedNote}`;
     }
 
     const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
 
-    // Scale output budget to expected section count. Each section in JSON
-    // averages ~220 tokens (title + summary + 3-4 key points + structure).
-    // We add a safety buffer + a hard cap at 8192 (Gemini Flash's max).
+    // Scale output budget to expected section count and verbosity. Each terse
+    // section ≈ 110 tokens; each verbose section ≈ 250 tokens. Add a 30% safety
+    // buffer. Gemini 2.5 Flash supports up to 65K output tokens, so we have
+    // headroom for any realistic outline.
     const expectedSections =
       usedChapters.length > 0
         ? usedChapters.length
         : estimateSectionsFromDuration(body.durationS);
-    const maxOutputTokens = Math.min(8192, Math.max(2048, expectedSections * 250 + 600));
+    const tersePerSection = usedChapters.length >= 10;
+    const tokensPerSection = tersePerSection ? 110 : 250;
+    const maxOutputTokens = Math.min(
+      32_768,
+      Math.max(2048, Math.round(expectedSections * tokensPerSection * 1.3) + 800)
+    );
     console.log(
-      `[generate-outline] expectedSections=${expectedSections} maxOutputTokens=${maxOutputTokens}`
+      `[generate-outline] expectedSections=${expectedSections} ` +
+        `terse=${tersePerSection} maxOutputTokens=${maxOutputTokens}`
     );
 
     const text = await callGemini({

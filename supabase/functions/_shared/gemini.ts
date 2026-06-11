@@ -5,14 +5,16 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!;
 // 'latest' aliases auto-track Google's current stable, so we don't break
 // when a specific version (e.g. 2.0-flash) gets sunset. Swap pro/founding
 // to gemini-pro-latest at launch for sharper outputs.
-// gemini-flash-latest is the sweet spot for our task: faster than -pro, sharper
-// than -flash-lite, and cheap enough that even 6-hour course outlines stay
-// under a few cents. (User confirmed Gemini account is on a paid plan.)
+// Pin to specific stable versions instead of -latest aliases. The aliases can
+// silently jump to preview / experimental models (notably gemini-flash-latest
+// was aliasing to a Gemini 3 preview that truncates mid-output even with
+// 8K maxOutputTokens). Stable 2.5-flash is the speed/quality sweet spot;
+// 2.5-pro for paying users.
 const MODELS: Record<string, string> = {
-  free: 'gemini-flash-latest',
-  pro: 'gemini-pro-latest',
-  founding: 'gemini-pro-latest',
-  student: 'gemini-flash-latest'
+  free: 'gemini-2.5-flash',
+  pro: 'gemini-2.5-pro',
+  founding: 'gemini-2.5-pro',
+  student: 'gemini-2.5-flash'
 };
 
 export function modelFor(tier: 'free' | 'pro' | 'founding' | 'student'): string {
@@ -63,9 +65,31 @@ export async function callGemini(opts: {
   }
 
   const data = await resp.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const candidate = data?.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text;
+  const finishReason = candidate?.finishReason;
+  const usage = data?.usageMetadata;
+
+  console.log(
+    `[gemini] model=${opts.model} finishReason=${finishReason} ` +
+      `promptTokens=${usage?.promptTokenCount} ` +
+      `outputTokens=${usage?.candidatesTokenCount} ` +
+      `textLength=${text?.length ?? 0}`
+  );
+
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error(
+      `Gemini truncated output (MAX_TOKENS at ${usage?.candidatesTokenCount} tokens). ` +
+        `Increase maxOutputTokens or shorten the prompt.`
+    );
+  }
+  if (finishReason === 'SAFETY' || finishReason === 'PROHIBITED_CONTENT') {
+    throw new Error(`Gemini blocked the response (finishReason: ${finishReason}).`);
+  }
   if (typeof text !== 'string' || text.length === 0) {
-    throw new Error('Gemini returned no text');
+    throw new Error(
+      `Gemini returned no text (finishReason: ${finishReason ?? 'unknown'})`
+    );
   }
   return text;
 }
