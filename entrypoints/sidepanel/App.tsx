@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useProfile } from '../../src/hooks/use-profile';
 import { useGenerateOutline } from '../../src/hooks/use-outline';
+import {
+  useCurrentVideoOutline,
+  watchTabChanges
+} from '../../src/hooks/use-current-video-outline';
 import { OutlineView } from '../../src/components/OutlineView';
 import { ThemeToggle } from '../../src/components/ThemeToggle';
-
-type Phase = 'idle' | 'outline';
 
 const isMac =
   typeof navigator !== 'undefined' &&
@@ -13,7 +15,12 @@ const isMac =
 export default function App() {
   const { data: profile } = useProfile();
   const gen = useGenerateOutline();
-  const [phase, setPhase] = useState<Phase>('idle');
+  const cached = useCurrentVideoOutline();
+  // forceAnalyze flips when the user clicks "Analyze another video" — it tells
+  // the side panel to ignore the cached lookup and surface the idle state again
+  // so the user can re-analyze (or analyze a freshly-loaded video without
+  // closing the panel).
+  const [forceAnalyze, setForceAnalyze] = useState(false);
 
   async function seek(seconds: number) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -23,27 +30,54 @@ export default function App() {
   }
 
   function startAnalyze() {
-    gen.mutate(undefined, { onSuccess: () => setPhase('outline') });
+    setForceAnalyze(false);
+    gen.mutate(undefined, {
+      onSuccess: () => {
+        // Bust the cached-outline cache so a re-mount sees the fresh one.
+        cached.refetch();
+      }
+    });
   }
 
   function reset() {
-    setPhase('idle');
+    setForceAnalyze(true);
     gen.reset();
   }
 
-  // Cmd/Ctrl + Enter triggers analyze when side panel has focus
+  // When the user navigates to a different YouTube video while the panel is
+  // open, re-check the cache for that video.
+  useEffect(() => {
+    const cleanup = watchTabChanges(() => {
+      cached.refetch();
+      setForceAnalyze(false);
+      gen.reset();
+    });
+    return cleanup;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // What we actually display this render. Effective outline = generation result
+  // if there is one, else the cached lookup (unless user clicked Analyze again).
+  const effectiveOutline = gen.data ?? (forceAnalyze ? null : cached.data ?? null);
+  const showCacheCheck = cached.isLoading && !gen.data && !gen.isPending;
+  const showOutline = !!effectiveOutline && !gen.isPending;
+  const showLoading = gen.isPending;
+  const showIdle =
+    !showCacheCheck && !showOutline && !showLoading;
+
+  // Cmd/Ctrl + Enter triggers analyze when side panel has focus AND we're idle
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const accelKey = isMac ? e.metaKey : e.ctrlKey;
-      if (!accelKey) return;
-      if (e.key !== 'Enter') return;
-      if (phase !== 'idle' || gen.isPending) return;
+      if (!accelKey || e.key !== 'Enter') return;
+      if (!showIdle) return;
       e.preventDefault();
       startAnalyze();
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [phase, gen.isPending]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIdle]);
 
   const cardCount = profile?.card_count ?? 0;
 
@@ -78,7 +112,9 @@ export default function App() {
 
       {/* Body */}
       <section className="flex-1 overflow-y-auto px-[18px] py-6">
-        {phase === 'idle' && !gen.isPending && (
+        {showCacheCheck && <CacheCheckState />}
+
+        {showIdle && (
           <IdleState
             onAnalyze={startAnalyze}
             error={gen.error?.message}
@@ -86,9 +122,9 @@ export default function App() {
           />
         )}
 
-        {gen.isPending && <LoadingState />}
+        {showLoading && <LoadingState />}
 
-        {phase === 'outline' && gen.data && (
+        {showOutline && effectiveOutline && (
           <div className="space-y-3">
             <button
               onClick={reset}
@@ -97,7 +133,7 @@ export default function App() {
               ← Analyze another video
             </button>
             <OutlineView
-              outline={gen.data.outline}
+              outline={effectiveOutline.outline}
               onSeek={seek}
               onGenerateCards={() =>
                 alert('Card generation ships in Phase 6 — coming next.')
@@ -107,6 +143,20 @@ export default function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function CacheCheckState() {
+  return (
+    <div className="text-center pt-[150px]">
+      <div
+        className="
+          w-5 h-5 mx-auto rounded-full border-2
+          border-[var(--color-border)] border-t-[var(--color-text-3)]
+          animate-spin
+        "
+      />
+    </div>
   );
 }
 
