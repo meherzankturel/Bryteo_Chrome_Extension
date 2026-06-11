@@ -121,10 +121,19 @@ function IdleState({
 }) {
   const ctaRef = useRef<HTMLButtonElement | null>(null);
 
-  // Auto-focus the CTA on mount so the side panel receives keystrokes
-  // (otherwise focus stays on the YouTube page and Cmd+Enter never fires here).
+  // Force the side panel to claim focus, THEN focus the CTA. Chrome can leave
+  // the side panel inactive (focus stays on the YouTube tab) when it opens via
+  // toolbar click, which is why Cmd+Enter wasn't firing earlier.
   useEffect(() => {
+    try { window.focus(); } catch {}
     ctaRef.current?.focus();
+    // Retry on next tick in case the first focus call lands before the
+    // side panel is actually activatable.
+    const t = setTimeout(() => {
+      try { window.focus(); } catch {}
+      ctaRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(t);
   }, []);
 
   return (
