@@ -114,23 +114,45 @@ serve(async (req) => {
     // When YouTube provides chapter markers (creator-uploaded), use them as
     // the section scaffold. This is much more accurate than letting the AI
     // infer structure from a sampled transcript.
+    //
+    // Hard cap at 30 chapters in the prompt so even a chaptered marathon
+    // course's JSON output fits inside Gemini Flash's 8192-token output limit.
+    // For videos with more chapters we'd group adjacent chapters — left as a
+    // future enhancement; ~99% of YouTube videos have <30 chapters.
     let chapterDirective = '';
-    if (body.chapters && body.chapters.length > 0) {
-      const chapterList = body.chapters
+    const CHAPTER_PROMPT_MAX = 30;
+    const usedChapters = body.chapters?.slice(0, CHAPTER_PROMPT_MAX) ?? [];
+    if (usedChapters.length > 0) {
+      const chapterList = usedChapters
         .map((c) => `- ${c.start_s}s · ${c.title}`)
         .join('\n');
-      chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.\n\nChapters:\n${chapterList}`;
+      const truncatedNote =
+        body.chapters && body.chapters.length > CHAPTER_PROMPT_MAX
+          ? `\n(Showing first ${CHAPTER_PROMPT_MAX} of ${body.chapters.length} chapters; extend coverage to the end of the video using your judgement for the rest.)`
+          : '';
+      chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.\n\nChapters:\n${chapterList}${truncatedNote}`;
     }
 
     const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
+
+    // Scale output budget to expected section count. Each section in JSON
+    // averages ~220 tokens (title + summary + 3-4 key points + structure).
+    // We add a safety buffer + a hard cap at 8192 (Gemini Flash's max).
+    const expectedSections =
+      usedChapters.length > 0
+        ? usedChapters.length
+        : estimateSectionsFromDuration(body.durationS);
+    const maxOutputTokens = Math.min(8192, Math.max(2048, expectedSections * 250 + 600));
+    console.log(
+      `[generate-outline] expectedSections=${expectedSections} maxOutputTokens=${maxOutputTokens}`
+    );
 
     const text = await callGemini({
       model,
       system: SYSTEM,
       turns: [{ role: 'user', text: userPrompt }],
       jsonMode: true,
-      // Tight output cap = faster generation. The outline schema rarely needs > 2K tokens.
-      maxOutputTokens: 2048
+      maxOutputTokens
     });
 
     let parsed: any;
@@ -148,7 +170,7 @@ serve(async (req) => {
           { role: 'user', text: 'That JSON did not match the schema. Reply again with valid JSON only.' }
         ],
         jsonMode: true,
-        maxOutputTokens: 2048
+        maxOutputTokens
       });
       try { parsed = JSON.parse(retryText); }
       catch { return jsonErr('ai_invalid_json', 502); }
@@ -192,4 +214,14 @@ function jsonErr(error: string, status: number) {
   return new Response(JSON.stringify({ error }), {
     status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
+}
+
+// Match the section-count guidance in the SYSTEM prompt so the output budget
+// always matches expected verbosity.
+function estimateSectionsFromDuration(durationS: number | undefined): number {
+  const minutes = (durationS ?? 0) / 60;
+  if (minutes < 15) return 4;     // short: 3-5 sections
+  if (minutes < 60) return 6;     // medium: 5-8 sections
+  if (minutes < 180) return 10;   // long: 8-12 sections
+  return 12;                      // marathon w/o chapters: cap at 12 inferred sections
 }
