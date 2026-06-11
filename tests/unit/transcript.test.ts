@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fixture from '../fixtures/youtube-player-response.json';
-import { parsePlayerResponse, parseTimedTextXml } from '@/lib/transcript';
+import { parsePlayerResponse, parseTimedTextXml, parseJson3 } from '@/lib/transcript';
 
 describe('parsePlayerResponse', () => {
   it('extracts video metadata + caption URL', () => {
@@ -57,5 +57,43 @@ describe('parseTimedTextXml', () => {
   it('returns empty string when no recognizable structure', () => {
     expect(parseTimedTextXml('<not-a-known-format/>')).toBe('');
     expect(parseTimedTextXml('')).toBe('');
+  });
+});
+
+describe('parseJson3', () => {
+  it('concatenates utf8 segments across events', () => {
+    const j = {
+      wireMagic: 'pb3',
+      events: [
+        { tStartMs: 0, dDurationMs: 2000, segs: [{ utf8: 'Hello' }, { utf8: ' world' }] },
+        { tStartMs: 2000, dDurationMs: 2000, segs: [{ utf8: ' goodbye' }] }
+      ]
+    };
+    expect(parseJson3(j)).toBe('Hello world goodbye');
+  });
+
+  it('skips events without segs', () => {
+    const j = {
+      events: [
+        { tStartMs: 0, dDurationMs: 2000 },
+        { tStartMs: 2000, dDurationMs: 2000, segs: [{ utf8: 'real text' }] }
+      ]
+    };
+    expect(parseJson3(j)).toBe('real text');
+  });
+
+  it('skips segs without utf8 (formatting events have other shapes)', () => {
+    const j = {
+      events: [
+        { segs: [{ utf8: 'Hello' }, { acAsrConf: 250 }, { utf8: ' world' }] }
+      ]
+    };
+    expect(parseJson3(j)).toBe('Hello world');
+  });
+
+  it('returns empty for malformed input', () => {
+    expect(parseJson3(null)).toBe('');
+    expect(parseJson3({})).toBe('');
+    expect(parseJson3({ events: 'not-an-array' })).toBe('');
   });
 });

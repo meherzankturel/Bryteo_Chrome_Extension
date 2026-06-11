@@ -65,3 +65,20 @@ function decodeOnce(s: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 }
+
+/**
+ * JSON3 is YouTube's modern captions format — works for both manual and
+ * auto-generated tracks. Returned by appending `?fmt=json3`. Shape:
+ *   { wireMagic: "pb3", events: [{ tStartMs, dDurationMs, segs: [{utf8: "..."}] }] }
+ */
+export function parseJson3(json: any): string {
+  if (!json || !Array.isArray(json.events)) return '';
+  const parts: string[] = [];
+  for (const ev of json.events) {
+    if (!Array.isArray(ev?.segs)) continue;
+    for (const seg of ev.segs) {
+      if (typeof seg?.utf8 === 'string') parts.push(seg.utf8);
+    }
+  }
+  return parts.join('').replace(/\s+/g, ' ').trim();
+}

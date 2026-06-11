@@ -1,5 +1,5 @@
 import { defineContentScript } from 'wxt/sandbox';
-import { parsePlayerResponse, parseTimedTextXml } from '../src/lib/transcript';
+import { parsePlayerResponse, parseTimedTextXml, parseJson3 } from '../src/lib/transcript';
 import type { AppMessage } from '../src/lib/messages';
 
 export default defineContentScript({
@@ -42,21 +42,54 @@ async function captureTranscript() {
   if (!meta) throw new Error('could not parse video metadata');
   if (!meta.captionUrl) throw new Error('no captions available for this video');
 
-  // YouTube defaults to srv3 XML (which uses <p><s>word</s></p> structure).
-  // Force srv1 — old format with <text> tags — which is easier to parse cleanly.
-  const u = new URL(meta.captionUrl);
-  u.searchParams.set('fmt', 'srv1');
+  console.log('[bryteo] captionUrl:', meta.captionUrl);
 
-  const xml = await fetch(u.toString()).then((r) => r.text());
-  const transcript = parseTimedTextXml(xml);
-  if (!transcript) {
-    // Hard-fail with the raw XML head so the console log is actionable.
-    console.error('[bryteo] empty transcript. URL:', u.toString());
-    console.error('[bryteo] xml head:', xml.slice(0, 400));
-    throw new Error("This video's captions came back empty. Try a different video.");
+  // Waterfall: try the most reliable format first, then degrade.
+  // - json3: YouTube's modern format; works for auto-generated AND manual tracks
+  // - srv1:  classic XML with <text> tags; manual tracks; legacy ASR
+  // - srv3:  modern XML with <p><s> per-word structure; some ASR tracks
+  const attempts: Array<{ fmt: 'json3' | 'srv1' | 'srv3'; parse: (body: string) => string }> = [
+    {
+      fmt: 'json3',
+      parse: (body) => {
+        try {
+          return parseJson3(JSON.parse(body));
+        } catch (e) {
+          console.warn('[bryteo] json3 JSON.parse failed:', e);
+          return '';
+        }
+      }
+    },
+    { fmt: 'srv1', parse: parseTimedTextXml },
+    { fmt: 'srv3', parse: parseTimedTextXml }
+  ];
+
+  for (const { fmt, parse } of attempts) {
+    try {
+      const u = new URL(meta.captionUrl);
+      u.searchParams.set('fmt', fmt);
+
+      const resp = await fetch(u.toString());
+      console.log(`[bryteo] ${fmt} → HTTP ${resp.status} (${resp.headers.get('content-type')})`);
+      if (!resp.ok) continue;
+
+      const body = await resp.text();
+      console.log(`[bryteo] ${fmt} body length: ${body.length}`);
+
+      const transcript = parse(body);
+      if (transcript) {
+        console.log(`[bryteo] success with ${fmt}, transcript length: ${transcript.length}`);
+        return { ...meta, transcript };
+      }
+      console.warn(`[bryteo] ${fmt} returned empty; trying next format`);
+      console.warn(`[bryteo] ${fmt} body head:`, body.slice(0, 300));
+    } catch (e) {
+      console.warn(`[bryteo] ${fmt} threw:`, e);
+    }
   }
 
-  return { ...meta, transcript };
+  console.error('[bryteo] all caption formats failed');
+  throw new Error("This video's captions came back empty. Try a different video.");
 }
 
 function readPlayerResponseFromPage(): any | null {
