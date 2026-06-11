@@ -62,7 +62,7 @@ export function useGenerateOutline() {
 
       await ensureContentScript(tab.id);
 
-      let resp: { ok: boolean; payload?: any; error?: string };
+      let resp: { ok: boolean; payload?: any; error?: string; diagnostics?: any[] };
       try {
         resp = await chrome.tabs.sendMessage(tab.id, {
           type: 'REQUEST_OUTLINE',
@@ -76,6 +76,17 @@ export function useGenerateOutline() {
           );
         }
         throw new Error(msg || 'Could not reach the YouTube tab.');
+      }
+
+      // Surface the content script's per-step diagnostics in THIS console
+      // (the side-panel console, where the user is already looking).
+      if (resp?.diagnostics?.length) {
+        console.groupCollapsed('[bryteo] transcript diagnostics');
+        for (const d of resp.diagnostics) {
+          const tag = d.ok ? '✓' : '✗';
+          console.log(`${tag} ${d.step}${d.note ? ' — ' + d.note : ''}`);
+        }
+        console.groupEnd();
       }
 
       if (!resp?.ok) {
