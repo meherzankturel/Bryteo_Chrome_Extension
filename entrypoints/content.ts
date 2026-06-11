@@ -6,7 +6,14 @@ export default defineContentScript({
   matches: ['https://*.youtube.com/watch*'],
   runAt: 'document_idle',
   async main() {
+    console.log('[bryteo] content script ready on', location.href);
+
     chrome.runtime.onMessage.addListener((msg: AppMessage, _sender, sendResponse) => {
+      if (msg.type === 'PING') {
+        sendResponse({ ok: true, pong: true });
+        return false; // sync response
+      }
+
       if (msg.type === 'REQUEST_OUTLINE') {
         (async () => {
           try {

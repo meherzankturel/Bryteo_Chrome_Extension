@@ -20,10 +20,17 @@ export type SeekVideo = {
   payload: { seconds: number };
 };
 
-export type AppMessage = TranscriptReady | RequestOutline | SeekVideo;
+export type Ping = { type: 'PING' };
+
+export type AppMessage = TranscriptReady | RequestOutline | SeekVideo | Ping;
 
 export function isAppMessage(x: unknown): x is AppMessage {
   if (!x || typeof x !== 'object') return false;
   const t = (x as any).type;
-  return t === 'TRANSCRIPT_READY' || t === 'REQUEST_OUTLINE' || t === 'SEEK_VIDEO';
+  return (
+    t === 'TRANSCRIPT_READY' ||
+    t === 'REQUEST_OUTLINE' ||
+    t === 'SEEK_VIDEO' ||
+    t === 'PING'
+  );
 }

@@ -15,7 +15,7 @@ export default defineConfig({
     name: 'BRYTEO — Remember what you watch',
     description: 'Turn YouTube videos into AI flashcards with spaced repetition.',
     version: '0.1.0',
-    permissions: ['storage', 'sidePanel', 'activeTab'],
+    permissions: ['storage', 'sidePanel', 'activeTab', 'scripting'],
     host_permissions: ['https://*.youtube.com/*'],
     icons: {
       16: 'icons/icon-16.png',
