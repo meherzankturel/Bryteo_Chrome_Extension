@@ -6,7 +6,9 @@ export const outlineRequest = z.object({
   channel: z.string().optional(),
   durationS: z.number().int().optional(),
   thumbnailUrl: z.string().url().optional(),
-  transcript: z.string().min(50).max(50_000)
+  // 500K chars covers up to ~6-8h lecture courses while staying well under
+  // Gemini's 1M-token context window.
+  transcript: z.string().min(50).max(500_000)
 });
 
 export const outlineSection = z.object({

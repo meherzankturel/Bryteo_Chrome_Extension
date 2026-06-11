@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.220.0/http/server.ts';
+import { z } from 'https://esm.sh/zod@3.23.0';
 import { corsHeaders } from '../_shared/cors.ts';
 import { getUserFromRequest, serviceClient } from '../_shared/auth.ts';
 import { outlineRequest, outlineResponse } from '../_shared/schemas.ts';
@@ -28,7 +29,30 @@ serve(async (req) => {
 
   try {
     const { user } = await getUserFromRequest(req);
-    const body = outlineRequest.parse(await req.json());
+
+    let body: z.infer<typeof outlineRequest>;
+    try {
+      body = outlineRequest.parse(await req.json());
+    } catch (e: any) {
+      if (e instanceof z.ZodError) {
+        const issue = e.errors?.[0];
+        const field = issue?.path?.join('.') ?? 'unknown';
+        const detail = issue?.message ?? 'invalid request';
+        console.error('[generate-outline] validation failed:', field, detail);
+        return new Response(
+          JSON.stringify({
+            error: 'validation_failed',
+            field,
+            detail
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      throw e;
+    }
 
     const sb = serviceClient();
     const { data: profile } = await sb
