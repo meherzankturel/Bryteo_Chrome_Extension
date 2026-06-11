@@ -12,7 +12,8 @@ import { sampleTranscript } from '../_shared/sampling.ts';
 const PROMPT_TRANSCRIPT_CHARS = 30_000;
 
 const SYSTEM = `You convert YouTube transcripts into structured study outlines.
-Return JSON with this shape:
+
+Return JSON ONLY, in this exact shape:
 {
   "sections": [
     {
@@ -25,17 +26,17 @@ Return JSON with this shape:
   ]
 }
 
-Section count guidance:
-- Short videos (under 15 min): 3-5 sections
-- Medium videos (15-60 min): 5-8 sections
-- Long lectures/courses (1h+): 8-12 sections, each covering a coherent topic
-  even if the total span runs hours
-
-Other rules:
-- Timestamps must lie inside the video's duration.
-- 2-6 key points per section, written as concrete facts (not vague themes).
-- Section titles use the video's actual terminology, not generic labels.
-- Reply with ONLY the JSON. No prose, no markdown fences.`;
+Rules — these are strict, your response will be rejected otherwise:
+1. If chapter markers are provided in the user message, use them as the section list. ONE section per chapter, in the same order. Use the chapter title as the section title. Do not invent extra sections, do not merge chapters.
+2. If no chapter markers are provided, generate sections by inferring structure from the transcript:
+   - Short videos (under 15 min): 3-5 sections
+   - Medium videos (15-60 min): 5-8 sections
+   - Long lectures/courses (1h+): 8-12 sections
+3. start_s and end_s MUST be integer seconds (not strings, not decimals). Both must be within the video duration. end_s must be > start_s.
+4. key_points MUST be a non-empty array of 2-6 concrete factual strings. If a section is short and lacks 2 distinct points, repeat the most important fact rather than emit an empty array.
+5. Section titles should use the video's actual terminology, never generic labels like "Section 1".
+6. summary is one paragraph; key_points are one-line facts (not sentences with subordinate clauses).
+7. Reply with ONLY the JSON. No prose, no markdown fences, no comments.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -156,26 +157,62 @@ serve(async (req) => {
     });
 
     let parsed: any;
-    try { parsed = JSON.parse(text); }
-    catch { return jsonErr('ai_invalid_json', 502); }
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      console.error('[generate-outline] JSON.parse failed; head:', text.slice(0, 600));
+      return jsonErr('ai_invalid_json', 502);
+    }
+
+    parsed = normalizeOutline(parsed, body.durationS ?? 0);
 
     const outline = outlineResponse.safeParse(parsed);
     if (!outline.success) {
+      console.error(
+        '[generate-outline] schema validation failed:',
+        JSON.stringify(outline.error.errors).slice(0, 1000)
+      );
+      console.error(
+        '[generate-outline] sections received:',
+        Array.isArray(parsed?.sections) ? parsed.sections.length : 'not-an-array'
+      );
+      console.error(
+        '[generate-outline] first section sample:',
+        JSON.stringify(parsed?.sections?.[0]).slice(0, 400)
+      );
+
+      const issues = outline.error.errors.slice(0, 5).map((e) =>
+        `${e.path.join('.')}: ${e.message}`
+      ).join('; ');
       const retryText = await callGemini({
         model,
         system: SYSTEM,
         turns: [
           { role: 'user', text: userPrompt },
           { role: 'model', text },
-          { role: 'user', text: 'That JSON did not match the schema. Reply again with valid JSON only.' }
+          {
+            role: 'user',
+            text: `Your previous response failed validation: ${issues}. Reply again with valid JSON only — pay special attention to: start_s and end_s must be integer seconds, key_points must be a non-empty array of strings.`
+          }
         ],
         jsonMode: true,
         maxOutputTokens
       });
-      try { parsed = JSON.parse(retryText); }
-      catch { return jsonErr('ai_invalid_json', 502); }
+      try {
+        parsed = JSON.parse(retryText);
+      } catch {
+        console.error('[generate-outline] retry JSON.parse failed; head:', retryText.slice(0, 600));
+        return jsonErr('ai_invalid_json', 502);
+      }
+      parsed = normalizeOutline(parsed, body.durationS ?? 0);
       const second = outlineResponse.safeParse(parsed);
-      if (!second.success) return jsonErr('ai_invalid_json', 502);
+      if (!second.success) {
+        console.error(
+          '[generate-outline] retry also failed schema:',
+          JSON.stringify(second.error.errors).slice(0, 1000)
+        );
+        return jsonErr('ai_invalid_json', 502);
+      }
       parsed = second.data;
     } else {
       parsed = outline.data;
@@ -224,4 +261,73 @@ function estimateSectionsFromDuration(durationS: number | undefined): number {
   if (minutes < 60) return 6;     // medium: 5-8 sections
   if (minutes < 180) return 10;   // long: 8-12 sections
   return 12;                      // marathon w/o chapters: cap at 12 inferred sections
+}
+
+/**
+ * Defensive normalization of Gemini's output before schema validation. Fixes
+ * common quirks that would otherwise fail strict Zod:
+ *   - start_s / end_s arriving as "123" strings or floats like 56.5
+ *   - end_s being missing, zero, or before start_s
+ *   - empty / non-array key_points
+ *   - Sections missing title or summary
+ *   - Extra unknown fields
+ *   - Whole outline wrapped in `{"outline": {...}}` or just an array
+ */
+function normalizeOutline(raw: any, videoDurationS: number): { sections: any[] } {
+  // Some models return {outline: {sections: ...}} or a bare array.
+  let r: any = raw;
+  if (Array.isArray(r)) r = { sections: r };
+  if (r?.outline?.sections) r = r.outline;
+
+  const rawSections = Array.isArray(r?.sections) ? r.sections : [];
+
+  const sections = rawSections
+    .map((s: any, i: number) => {
+      const title = typeof s?.title === 'string' ? s.title.trim() : '';
+      const summary = typeof s?.summary === 'string' ? s.summary.trim() : '';
+      const start_s = coerceSeconds(s?.start_s);
+      let end_s = coerceSeconds(s?.end_s);
+
+      // Sanitize timestamp range.
+      const safeStart = clamp(start_s, 0, Math.max(0, videoDurationS - 1));
+      if (end_s <= safeStart) {
+        // Estimate: use next section's start, or video end.
+        const nextRaw = rawSections[i + 1]?.start_s;
+        const next = nextRaw != null ? coerceSeconds(nextRaw) : NaN;
+        end_s = Number.isFinite(next) && next > safeStart
+          ? next
+          : Math.min(videoDurationS, safeStart + 60);
+      }
+      const safeEnd = clamp(end_s, safeStart + 1, Math.max(safeStart + 1, videoDurationS));
+
+      // Key points: filter to non-empty strings, cap at 8. If none, use a
+      // single derived bullet from the summary so we always pass min(1).
+      let key_points: string[] = Array.isArray(s?.key_points)
+        ? s.key_points
+            .filter((p: any) => typeof p === 'string' && p.trim().length > 0)
+            .map((p: string) => p.trim())
+            .slice(0, 8)
+        : [];
+      if (key_points.length === 0 && summary) {
+        key_points = [summary.slice(0, 140)];
+      }
+
+      return { title, summary, start_s: safeStart, end_s: safeEnd, key_points };
+    })
+    .filter((s: any) => s.title && s.summary && s.key_points.length > 0);
+
+  return { sections };
+}
+
+function coerceSeconds(v: any): number {
+  if (typeof v === 'number') return Math.floor(v);
+  if (typeof v === 'string') {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? Math.floor(n) : 0;
+  }
+  return 0;
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
 }

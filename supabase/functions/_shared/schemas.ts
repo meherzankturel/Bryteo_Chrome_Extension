@@ -18,11 +18,13 @@ export const outlineRequest = z.object({
 });
 
 export const outlineSection = z.object({
-  title: z.string(),
-  summary: z.string(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
   start_s: z.number().int().nonnegative(),
   end_s: z.number().int().nonnegative(),
-  key_points: z.array(z.string()).min(1).max(8)
+  // Normalization ensures we never receive 0 key_points (we backfill from
+  // summary). The min(1) here is the contract — anything emptier is a bug.
+  key_points: z.array(z.string().min(1)).min(1).max(8)
 });
 
 export const outlineResponse = z.object({
