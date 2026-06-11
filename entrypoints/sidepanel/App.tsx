@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useProfile } from '../../src/hooks/use-profile';
 import { useGenerateOutline } from '../../src/hooks/use-outline';
 import { OutlineView } from '../../src/components/OutlineView';
+import { ThemeToggle } from '../../src/components/ThemeToggle';
 
 type Phase = 'idle' | 'outline';
 
@@ -18,9 +19,7 @@ export default function App() {
   }
 
   function startAnalyze() {
-    gen.mutate(undefined, {
-      onSuccess: () => setPhase('outline')
-    });
+    gen.mutate(undefined, { onSuccess: () => setPhase('outline') });
   }
 
   function reset() {
@@ -31,16 +30,36 @@ export default function App() {
   const cardCount = profile?.card_count ?? 0;
 
   return (
-    <main className="h-full flex flex-col bg-slate-50">
-      <header className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <img src="/icons/icon-48.png" alt="" className="w-6 h-6" />
-          <span className="text-sm font-semibold tracking-wide text-ink">BRYTEO</span>
+    <main className="h-full flex flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
+      {/* Header */}
+      <header
+        className="
+          px-4 py-3 flex items-center justify-between
+          bg-[var(--color-surface-1)] border-b border-[var(--color-border)]
+        "
+      >
+        <div className="flex items-center gap-2.5">
+          <img src="/icons/icon-48.png" alt="" className="w-[22px] h-[22px]" />
+          <span className="text-[12px] font-bold tracking-[0.16em] text-[var(--color-text)]">
+            BRYTEO
+          </span>
         </div>
-        <span className="text-xs text-slate-500">{cardCount}/50 cards</span>
+        <div className="flex items-center gap-2">
+          <span
+            className="
+              font-mono text-[11px] font-medium text-[var(--color-text-3)]
+              px-2.5 py-1 rounded-md
+              bg-[var(--color-surface-2)] border border-[var(--color-border)]
+            "
+          >
+            {cardCount}/50
+          </span>
+          <ThemeToggle />
+        </div>
       </header>
 
-      <section className="flex-1 overflow-y-auto px-4 py-4">
+      {/* Body */}
+      <section className="flex-1 overflow-y-auto px-[18px] py-6">
         {phase === 'idle' && !gen.isPending && (
           <IdleState onAnalyze={startAnalyze} error={gen.error?.message} />
         )}
@@ -51,7 +70,7 @@ export default function App() {
           <div className="space-y-3">
             <button
               onClick={reset}
-              className="text-xs text-slate-500 hover:text-ink"
+              className="text-[11px] text-[var(--color-text-3)] hover:text-[var(--color-text)] transition-colors"
             >
               ← Analyze another video
             </button>
@@ -71,20 +90,52 @@ export default function App() {
 
 function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string }) {
   return (
-    <div className="text-center py-8">
-      <div className="text-3xl mb-2">📺</div>
-      <p className="text-sm font-medium text-ink mb-1">Ready when you are</p>
-      <p className="text-xs text-slate-600 mb-6 max-w-[240px] mx-auto">
-        Open a YouTube video and click below. BRYTEO will summarize it for you.
+    <div className="text-center pt-[90px]">
+      <div
+        className="
+          w-[72px] h-[72px] mx-auto mb-6 grid place-items-center
+          rounded-2xl relative overflow-hidden
+          bg-[var(--color-surface-2)] border border-[var(--color-border)]
+        "
+      >
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse at top, rgba(212,161,86,0.12), transparent 60%)'
+          }}
+        />
+        <img src="/icons/icon-128.png" alt="" className="w-10 h-10 relative z-10" />
+      </div>
+      <h1 className="text-[19px] font-semibold tracking-[-0.015em] mb-1.5 text-[var(--color-text)]">
+        Ready when you are
+      </h1>
+      <p className="text-[13px] text-[var(--color-text-2)] max-w-[240px] mx-auto mb-7 leading-[1.55]">
+        Open a YouTube video and we'll turn it into a study aid you'll actually remember.
       </p>
       <button
         onClick={onAnalyze}
-        className="px-5 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:opacity-90 transition"
+        className="
+          inline-flex items-center gap-2 px-[22px] py-[11px] rounded-[7px]
+          bg-[var(--color-text)] text-[var(--color-bg)]
+          font-semibold text-[13px] tracking-[0.01em]
+          transition-all duration-200
+          hover:translate-y-[-1px] hover:opacity-90
+        "
+        style={{ boxShadow: 'var(--shadow-cta)' }}
+        onMouseEnter={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow-cta-hover)')}
+        onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow-cta)')}
       >
         Analyze this video
+        <span className="text-[14px]">→</span>
       </button>
+      <div className="mt-[18px] flex justify-center items-center gap-1.5 font-mono text-[11px] text-[var(--color-text-3)]">
+        or press
+        <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-text-2)]">⌘</span>
+        <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-text-2)]">↵</span>
+      </div>
       {error && (
-        <p className="mt-4 text-xs text-red-600 max-w-[260px] mx-auto">{error}</p>
+        <p className="mt-4 text-[12px] text-red-500 max-w-[260px] mx-auto">{error}</p>
       )}
     </div>
   );
@@ -92,10 +143,27 @@ function IdleState({ onAnalyze, error }: { onAnalyze: () => void; error?: string
 
 function LoadingState() {
   return (
-    <div className="text-center py-12">
-      <div className="inline-block w-6 h-6 border-2 border-slate-300 border-t-ink rounded-full animate-spin mb-3" />
-      <p className="text-sm text-slate-600">Analyzing this video…</p>
-      <p className="text-xs text-slate-500 mt-1">This usually takes 5–15 seconds.</p>
+    <div className="text-center pt-[130px]">
+      <div
+        className="
+          w-[200px] h-[6px] mx-auto mb-[18px] rounded-[3px] relative overflow-hidden
+          bg-[var(--color-surface-3)]
+        "
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, var(--color-gold), transparent)',
+            animation: 'shimmer 1.5s linear infinite',
+            transform: 'translateX(-100%)'
+          }}
+        />
+      </div>
+      <p className="text-[13px] font-medium text-[var(--color-text)] mb-1.5">
+        Reading the lecture
+      </p>
+      <p className="font-mono text-[11px] text-[var(--color-text-3)]">~ 10s</p>
     </div>
   );
 }
