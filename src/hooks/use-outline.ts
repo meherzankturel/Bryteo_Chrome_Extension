@@ -100,6 +100,9 @@ export function useGenerateOutline() {
         throw new Error(err);
       }
 
+      // resp.payload now includes chapters from playerResponse when present —
+      // generateOutline forwards them to the Edge Function which uses them as
+      // the section scaffold.
       return generateOutline(resp.payload);
     }
   });

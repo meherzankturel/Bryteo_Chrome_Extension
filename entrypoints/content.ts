@@ -69,6 +69,16 @@ async function captureTranscript(diagnostics: Diagnostic[]) {
   }
   diagnostics.push({ step: 'captionUrl', ok: true, note: meta.captionUrl.slice(0, 120) + '…' });
 
+  if (meta.chapters && meta.chapters.length > 0) {
+    diagnostics.push({
+      step: 'chapters',
+      ok: true,
+      note: `${meta.chapters.length} chapter markers from YouTube`
+    });
+  } else {
+    diagnostics.push({ step: 'chapters', ok: false, note: 'no chapter markers' });
+  }
+
   // --- Attempt 1: direct URL fetch (json3 → srv1 → srv3) ---
   const formats: Array<{ fmt: 'json3' | 'srv1' | 'srv3'; parse: (body: string) => string }> = [
     {

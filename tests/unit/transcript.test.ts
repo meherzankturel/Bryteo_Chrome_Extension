@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import fixture from '../fixtures/youtube-player-response.json';
-import { parsePlayerResponse, parseTimedTextXml, parseJson3 } from '@/lib/transcript';
+import {
+  parsePlayerResponse,
+  parseTimedTextXml,
+  parseJson3,
+  parseChapters
+} from '@/lib/transcript';
 
 describe('parsePlayerResponse', () => {
   it('extracts video metadata + caption URL', () => {
@@ -95,5 +100,90 @@ describe('parseJson3', () => {
     expect(parseJson3(null)).toBe('');
     expect(parseJson3({})).toBe('');
     expect(parseJson3({ events: 'not-an-array' })).toBe('');
+  });
+});
+
+describe('parseChapters', () => {
+  it('extracts chapters from frameworkUpdates macroMarkersListEntity', () => {
+    const pr = {
+      frameworkUpdates: {
+        entityBatchUpdate: {
+          mutations: [
+            {
+              payload: {
+                macroMarkersListEntity: {
+                  markersList: {
+                    markers: [
+                      { title: { simpleText: 'Introduction' }, startTimeMillis: '0' },
+                      { title: { simpleText: 'What is Python?' }, startTimeMillis: '56000' },
+                      { title: { simpleText: 'Installing Python' }, startTimeMillis: '251000' }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    };
+    expect(parseChapters(pr)).toEqual([
+      { title: 'Introduction', start_s: 0 },
+      { title: 'What is Python?', start_s: 56 },
+      { title: 'Installing Python', start_s: 251 }
+    ]);
+  });
+
+  it('supports title.runs alternative shape', () => {
+    const pr = {
+      frameworkUpdates: {
+        entityBatchUpdate: {
+          mutations: [
+            {
+              payload: {
+                macroMarkersListEntity: {
+                  markersList: {
+                    markers: [
+                      { title: { runs: [{ text: 'Intro' }] }, startMillis: '0' }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    };
+    expect(parseChapters(pr)).toEqual([{ title: 'Intro', start_s: 0 }]);
+  });
+
+  it('returns [] when no chapter data is present', () => {
+    expect(parseChapters({})).toEqual([]);
+    expect(parseChapters({ frameworkUpdates: {} })).toEqual([]);
+    expect(parseChapters(null)).toEqual([]);
+  });
+
+  it('skips markers missing a title or timestamp', () => {
+    const pr = {
+      frameworkUpdates: {
+        entityBatchUpdate: {
+          mutations: [
+            {
+              payload: {
+                macroMarkersListEntity: {
+                  markersList: {
+                    markers: [
+                      { title: { simpleText: 'Good' }, startTimeMillis: '0' },
+                      { title: { simpleText: '' }, startTimeMillis: '5000' },
+                      { startTimeMillis: '10000' }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    };
+    expect(parseChapters(pr)).toEqual([{ title: 'Good', start_s: 0 }]);
   });
 });

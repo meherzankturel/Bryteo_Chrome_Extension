@@ -1,3 +1,5 @@
+export type Chapter = { title: string; start_s: number };
+
 export type VideoMeta = {
   videoId: string;
   title: string;
@@ -5,7 +7,40 @@ export type VideoMeta = {
   durationS: number;
   thumbnailUrl: string;
   captionUrl: string | null;
+  chapters?: Chapter[];
 };
+
+/**
+ * Extract chapter markers from a YouTube playerResponse. Chapters live inside
+ * frameworkUpdates entity batch updates under a macroMarkersListEntity. When
+ * a video has manual chapter timestamps, this is the most accurate section
+ * scaffold we can offer the LLM — it sidesteps Gemini having to guess.
+ */
+export function parseChapters(pr: any): Chapter[] {
+  const mutations =
+    pr?.frameworkUpdates?.entityBatchUpdate?.mutations ?? [];
+
+  for (const m of mutations) {
+    const markers = m?.payload?.macroMarkersListEntity?.markersList?.markers;
+    if (!Array.isArray(markers) || markers.length === 0) continue;
+
+    const chapters: Chapter[] = [];
+    for (const marker of markers) {
+      const title = marker?.title?.simpleText
+        ?? marker?.title?.runs?.[0]?.text;
+      const startMs =
+        marker?.startTimeMillis ??
+        marker?.startMillis ??
+        marker?.startTimeMs;
+      if (!title) continue;
+      const start_s = startMs != null ? Math.floor(Number(startMs) / 1000) : NaN;
+      if (Number.isNaN(start_s)) continue;
+      chapters.push({ title: String(title).trim(), start_s });
+    }
+    if (chapters.length > 0) return chapters;
+  }
+  return [];
+}
 
 export function parsePlayerResponse(pr: any): VideoMeta | null {
   const d = pr?.videoDetails;
@@ -16,13 +51,16 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
     ? tracks.find((t: any) => t.languageCode === 'en') ?? tracks[0]
     : null;
 
+  const chapters = parseChapters(pr);
+
   return {
     videoId: d.videoId,
     title: d.title ?? '',
     channel: d.author ?? '',
     durationS: parseInt(d.lengthSeconds ?? '0', 10),
     thumbnailUrl: d.thumbnail?.thumbnails?.[0]?.url ?? '',
-    captionUrl: englishTrack?.baseUrl ?? null
+    captionUrl: englishTrack?.baseUrl ?? null,
+    chapters: chapters.length > 0 ? chapters : undefined
   };
 }
 

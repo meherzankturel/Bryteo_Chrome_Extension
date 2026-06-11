@@ -5,10 +5,13 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!;
 // 'latest' aliases auto-track Google's current stable, so we don't break
 // when a specific version (e.g. 2.0-flash) gets sunset. Swap pro/founding
 // to gemini-pro-latest at launch for sharper outputs.
+// gemini-flash-latest is the sweet spot for our task: faster than -pro, sharper
+// than -flash-lite, and cheap enough that even 6-hour course outlines stay
+// under a few cents. (User confirmed Gemini account is on a paid plan.)
 const MODELS: Record<string, string> = {
   free: 'gemini-flash-latest',
-  pro: 'gemini-flash-latest',
-  founding: 'gemini-flash-latest',
+  pro: 'gemini-pro-latest',
+  founding: 'gemini-pro-latest',
   student: 'gemini-flash-latest'
 };
 

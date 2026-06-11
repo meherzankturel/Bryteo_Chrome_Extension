@@ -5,6 +5,11 @@ import { getUserFromRequest, serviceClient } from '../_shared/auth.ts';
 import { outlineRequest, outlineResponse } from '../_shared/schemas.ts';
 import { checkAndIncrement } from '../_shared/rate-limit.ts';
 import { callGemini, modelFor } from '../_shared/gemini.ts';
+import { sampleTranscript } from '../_shared/sampling.ts';
+
+// Keep the prompt small enough to fit Gemini Flash Lite's context comfortably
+// AND fast enough to return in 3-5s even for marathon courses.
+const PROMPT_TRANSCRIPT_CHARS = 30_000;
 
 const SYSTEM = `You convert YouTube transcripts into structured study outlines.
 Return JSON with this shape:
@@ -19,9 +24,17 @@ Return JSON with this shape:
     }
   ]
 }
-- 3 to 8 sections.
-- Timestamps must lie inside the video.
-- 2-6 key points per section.
+
+Section count guidance:
+- Short videos (under 15 min): 3-5 sections
+- Medium videos (15-60 min): 5-8 sections
+- Long lectures/courses (1h+): 8-12 sections, each covering a coherent topic
+  even if the total span runs hours
+
+Other rules:
+- Timestamps must lie inside the video's duration.
+- 2-6 key points per section, written as concrete facts (not vague themes).
+- Section titles use the video's actual terminology, not generic labels.
 - Reply with ONLY the JSON. No prose, no markdown fences.`;
 
 serve(async (req) => {
@@ -55,6 +68,29 @@ serve(async (req) => {
     }
 
     const sb = serviceClient();
+
+    // --- Cache hit fast-path: if this user already has an outline for this
+    // video, return it instantly (no rate-limit charge, no Gemini call).
+    const { data: existingVideo } = await sb
+      .from('videos')
+      .select('id, outlines(sections, model_used)')
+      .eq('user_id', user.id)
+      .eq('yt_video_id', body.videoId)
+      .maybeSingle();
+
+    const existingOutline = (existingVideo as any)?.outlines?.[0];
+    if (existingVideo && existingOutline?.sections) {
+      console.log('[generate-outline] cache hit for', body.videoId);
+      return new Response(
+        JSON.stringify({
+          videoId: existingVideo.id,
+          outline: { sections: existingOutline.sections },
+          cached: true
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { data: profile } = await sb
       .from('profiles').select('pro_status').eq('id', user.id).single();
     const tier = (profile?.pro_status ?? 'free') as 'free' | 'pro' | 'founding' | 'student';
@@ -66,13 +102,35 @@ serve(async (req) => {
     }
 
     const model = modelFor(tier);
-    const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.\nTranscript:\n${body.transcript}`;
+
+    // Sample long transcripts down to a fixed budget so generation time stays
+    // ~constant regardless of video length.
+    const promptTranscript = sampleTranscript(body.transcript, PROMPT_TRANSCRIPT_CHARS);
+    const sampledNote =
+      body.transcript.length > PROMPT_TRANSCRIPT_CHARS
+        ? `\n\n(This is a ${Math.round((body.durationS ?? 0) / 60)}-minute video; transcript was sampled to a fixed budget. Use the timestamps you see to anchor sections — extrapolate ranges for unseen middle content.)`
+        : '';
+
+    // When YouTube provides chapter markers (creator-uploaded), use them as
+    // the section scaffold. This is much more accurate than letting the AI
+    // infer structure from a sampled transcript.
+    let chapterDirective = '';
+    if (body.chapters && body.chapters.length > 0) {
+      const chapterList = body.chapters
+        .map((c) => `- ${c.start_s}s · ${c.title}`)
+        .join('\n');
+      chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.\n\nChapters:\n${chapterList}`;
+    }
+
+    const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
 
     const text = await callGemini({
       model,
       system: SYSTEM,
       turns: [{ role: 'user', text: userPrompt }],
-      jsonMode: true
+      jsonMode: true,
+      // Tight output cap = faster generation. The outline schema rarely needs > 2K tokens.
+      maxOutputTokens: 2048
     });
 
     let parsed: any;
@@ -89,7 +147,8 @@ serve(async (req) => {
           { role: 'model', text },
           { role: 'user', text: 'That JSON did not match the schema. Reply again with valid JSON only.' }
         ],
-        jsonMode: true
+        jsonMode: true,
+        maxOutputTokens: 2048
       });
       try { parsed = JSON.parse(retryText); }
       catch { return jsonErr('ai_invalid_json', 502); }
