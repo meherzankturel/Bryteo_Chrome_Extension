@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <title>Welcome to bryteo</title>
+    <script>
+      (function() {
+        try {
+          var s = localStorage.getItem('bryteo.theme');
+          if (s === 'dark' || s === 'light') document.documentElement.dataset.theme = s;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

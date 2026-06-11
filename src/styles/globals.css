@@ -1,12 +1,77 @@
 @import 'tailwindcss';
 
+/* Load Inter + JetBrains Mono from Google Fonts via @import for sandboxed extension contexts.
+   If CSP blocks this, fall back to system stacks — but the manifest CSP currently allows
+   self + supabase + lemonsqueezy only. So instead, use system font stacks here and
+   accept that the typography won't perfectly match the mockup until Phase 13 ships
+   bundled woff2 files. */
+
 @theme {
-  --color-ink: #0F172A;
-  --color-slate-50: #F8FAFC;
-  --color-slate-100: #F1F5F9;
-  --color-slate-600: #475569;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Default to system preference if user hasn't picked, then allow data-theme override */
+:root, :root[data-theme='dark'] {
+  --color-bg: #0E0F12;
+  --color-surface-1: #15161B;
+  --color-surface-2: #1C1D23;
+  --color-surface-3: #22232B;
+  --color-border: #2A2B33;
+  --color-border-strong: #3A3B43;
+  --color-text: #F4F4F2;
+  --color-text-2: #B8B9BF;
+  --color-text-3: #76777E;
+  --color-gold: #D4A156;
+  --color-gold-bright: #E8B97A;
+  --shadow-cta: 0 4px 14px rgba(244,244,242,0.12);
+  --shadow-cta-hover: 0 6px 20px rgba(244,244,242,0.2);
+}
+
+:root[data-theme='light'] {
+  --color-bg: #F4F5F8;
+  --color-surface-1: #FFFFFF;
+  --color-surface-2: #FAFBFD;
+  --color-surface-3: #EDEFF3;
+  --color-border: #E1E4EA;
+  --color-border-strong: #C5CAD4;
+  --color-text: #0E0F12;
+  --color-text-2: #525664;
+  --color-text-3: #98A0B3;
+  --color-gold: #B89055;
+  --color-gold-bright: #D4A77B;
+  --shadow-cta: 0 4px 14px rgba(14,15,18,0.18);
+  --shadow-cta-hover: 0 6px 20px rgba(14,15,18,0.25);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-bg: #F4F5F8;
+    --color-surface-1: #FFFFFF;
+    --color-surface-2: #FAFBFD;
+    --color-surface-3: #EDEFF3;
+    --color-border: #E1E4EA;
+    --color-border-strong: #C5CAD4;
+    --color-text: #0E0F12;
+    --color-text-2: #525664;
+    --color-text-3: #98A0B3;
+    --color-gold: #B89055;
+    --color-gold-bright: #D4A77B;
+    --shadow-cta: 0 4px 14px rgba(14,15,18,0.18);
+    --shadow-cta-hover: 0 6px 20px rgba(14,15,18,0.25);
+  }
 }
 
 @layer base {
-  html, body { font-family: system-ui, sans-serif; }
+  html, body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-text);
+  }
+}
+
+/* shimmer keyframe used by the loading skeleton */
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
 }
