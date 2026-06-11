@@ -42,9 +42,19 @@ async function captureTranscript() {
   if (!meta) throw new Error('could not parse video metadata');
   if (!meta.captionUrl) throw new Error('no captions available for this video');
 
-  const xml = await fetch(meta.captionUrl).then((r) => r.text());
+  // YouTube defaults to srv3 XML (which uses <p><s>word</s></p> structure).
+  // Force srv1 — old format with <text> tags — which is easier to parse cleanly.
+  const u = new URL(meta.captionUrl);
+  u.searchParams.set('fmt', 'srv1');
+
+  const xml = await fetch(u.toString()).then((r) => r.text());
   const transcript = parseTimedTextXml(xml);
-  if (!transcript) throw new Error('empty transcript');
+  if (!transcript) {
+    // Hard-fail with the raw XML head so the console log is actionable.
+    console.error('[bryteo] empty transcript. URL:', u.toString());
+    console.error('[bryteo] xml head:', xml.slice(0, 400));
+    throw new Error("This video's captions came back empty. Try a different video.");
+  }
 
   return { ...meta, transcript };
 }

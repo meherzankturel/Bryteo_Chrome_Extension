@@ -27,9 +27,28 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
 }
 
 export function parseTimedTextXml(xml: string): string {
-  const matches = [...xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g)];
-  const text = matches.map((m) => decodeEntities(m[1] ?? '')).join(' ');
-  return text.replace(/\s+/g, ' ').trim();
+  // srv1 format: <text start="0" dur="2">content</text> — used when ?fmt=srv1.
+  const srv1Matches = [...xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g)];
+  if (srv1Matches.length > 0) {
+    const text = srv1Matches.map((m) => decodeEntities(m[1] ?? '')).join(' ');
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  // srv3 fallback: <p t="0" d="2500"><s>word</s><s ac="1"> word</s></p>.
+  // YouTube returns this by default if ?fmt is not specified.
+  const srv3Matches = [...xml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)];
+  if (srv3Matches.length > 0) {
+    const text = srv3Matches
+      .map((m) => {
+        // Strip any inner tags (<s>, <i>, <b>, etc.) and decode entities.
+        const inner = (m[1] ?? '').replace(/<[^>]+>/g, '');
+        return decodeEntities(inner);
+      })
+      .join(' ');
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  return '';
 }
 
 function decodeEntities(s: string): string {

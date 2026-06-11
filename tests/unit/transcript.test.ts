@@ -37,4 +37,25 @@ describe('parseTimedTextXml', () => {
     </transcript>`;
     expect(parseTimedTextXml(xml)).toContain('Tom & Jerry');
   });
+
+  it('falls back to srv3 <p><s> structure when no <text> tags', () => {
+    const xml = `<?xml version="1.0"?>
+      <timedtext>
+        <body>
+          <p t="0" d="2500"><s>Hello</s></p>
+          <p t="2500" d="2000"><s>world</s></p>
+        </body>
+      </timedtext>`;
+    expect(parseTimedTextXml(xml)).toBe('Hello world');
+  });
+
+  it('strips inner srv3 tags and concatenates words', () => {
+    const xml = `<p t="0" d="3000"><s>How</s><s ac="1"> are</s><s> you</s></p>`;
+    expect(parseTimedTextXml(xml)).toBe('How are you');
+  });
+
+  it('returns empty string when no recognizable structure', () => {
+    expect(parseTimedTextXml('<not-a-known-format/>')).toBe('');
+    expect(parseTimedTextXml('')).toBe('');
+  });
 });
