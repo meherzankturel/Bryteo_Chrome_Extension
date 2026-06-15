@@ -63,6 +63,26 @@ async function captureTranscript(diagnostics: Diagnostic[]) {
   }
   diagnostics.push({ step: 'parseMeta', ok: true, note: `${meta.title} (${meta.durationS}s)` });
 
+  // --- Strategy "InnerTube" (PRIMARY for 2026): re-call YouTube's own
+  // InnerTube /youtubei/v1/player endpoint with Android client context.
+  // YouTube's classic /api/timedtext endpoint returns 0 bytes for ASR captions
+  // because the pot/signature requirements changed, BUT a fresh playerResponse
+  // fetched via InnerTube returns caption URLs that DO work. This is what
+  // NoteGPT, Eightify, and modern YT transcript extensions use in 2026.
+  try {
+    const innerTubeTranscript = await tryInnerTubeCaptions(meta.videoId, diagnostics);
+    if (innerTubeTranscript) {
+      diagnostics.push({
+        step: 'extracted',
+        ok: true,
+        note: `${innerTubeTranscript.length} chars (InnerTube)`
+      });
+      return { ...meta, transcript: innerTubeTranscript };
+    }
+  } catch (e: any) {
+    diagnostics.push({ step: 'innerTube', ok: false, note: `threw: ${e?.message ?? e}` });
+  }
+
   if (meta.chapters && meta.chapters.length > 0) {
     diagnostics.push({
       step: 'chapters',
@@ -137,6 +157,158 @@ async function captureTranscript(diagnostics: Diagnostic[]) {
   }
 
   throw new Error("Couldn't read this video's captions. Try a different video.");
+}
+
+/**
+ * Re-call YouTube's own InnerTube /youtubei/v1/player endpoint with the
+ * Android client context. This returns a FRESH playerResponse with caption
+ * URLs that actually serve content — sidestepping the dead /api/timedtext
+ * endpoint that returns 0 bytes for ASR captions in 2026.
+ *
+ * Why Android client: web client now requires `pot` (proof of token) on
+ * caption URL fetches. Android client doesn't — it gets unsigned URLs.
+ */
+async function tryInnerTubeCaptions(
+  videoId: string,
+  diag: Diagnostic[]
+): Promise<string> {
+  // Extract INNERTUBE_API_KEY from the page (it's embedded in ytcfg or scripts)
+  const apiKey = extractInnerTubeApiKey();
+  if (!apiKey) {
+    diag.push({ step: 'innerTube:apiKey', ok: false, note: 'no INNERTUBE_API_KEY in page' });
+    return '';
+  }
+  diag.push({ step: 'innerTube:apiKey', ok: true });
+
+  // POST to InnerTube player endpoint with Android client context
+  let playerData: any;
+  try {
+    const resp = await fetch(
+      `https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'ANDROID',
+              clientVersion: '19.09.37',
+              androidSdkVersion: 30,
+              hl: 'en',
+              gl: 'US',
+              userAgent:
+                'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip'
+            }
+          },
+          videoId
+        })
+      }
+    );
+    if (!resp.ok) {
+      diag.push({
+        step: 'innerTube:player',
+        ok: false,
+        note: `HTTP ${resp.status}`
+      });
+      return '';
+    }
+    playerData = await resp.json();
+    diag.push({ step: 'innerTube:player', ok: true });
+  } catch (e: any) {
+    diag.push({ step: 'innerTube:player', ok: false, note: `fetch: ${e?.message ?? e}` });
+    return '';
+  }
+
+  // Pull caption tracks from the Android player response
+  const tracks: any[] =
+    playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  if (tracks.length === 0) {
+    diag.push({ step: 'innerTube:tracks', ok: false, note: 'no caption tracks' });
+    return '';
+  }
+
+  // Prefer English; if none, take the first track
+  const track = tracks.find((t) => t.languageCode === 'en') ?? tracks[0];
+  const baseUrl: string | undefined = track?.baseUrl;
+  if (!baseUrl) {
+    diag.push({ step: 'innerTube:tracks', ok: false, note: 'track has no baseUrl' });
+    return '';
+  }
+  diag.push({
+    step: 'innerTube:tracks',
+    ok: true,
+    note: `${tracks.length} tracks, using ${track.languageCode ?? '?'}`
+  });
+
+  // Fetch the actual transcript JSON
+  try {
+    const url = baseUrl + (baseUrl.includes('fmt=') ? '' : '&fmt=json3');
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      diag.push({
+        step: 'innerTube:captionFetch',
+        ok: false,
+        note: `HTTP ${resp.status}`
+      });
+      return '';
+    }
+    const body = await resp.text();
+    if (body.length === 0) {
+      diag.push({ step: 'innerTube:captionFetch', ok: false, note: 'empty body' });
+      return '';
+    }
+
+    // Parse as json3 first, fall back to XML
+    let transcript = '';
+    try {
+      transcript = parseJson3(JSON.parse(body));
+    } catch {
+      transcript = parseTimedTextXml(body);
+    }
+
+    if (!transcript) {
+      diag.push({
+        step: 'innerTube:captionFetch',
+        ok: false,
+        note: `body ${body.length}b but parsed empty`
+      });
+      return '';
+    }
+
+    diag.push({
+      step: 'innerTube:captionFetch',
+      ok: true,
+      note: `${transcript.length} chars`
+    });
+    return transcript;
+  } catch (e: any) {
+    diag.push({
+      step: 'innerTube:captionFetch',
+      ok: false,
+      note: `threw: ${e?.message ?? e}`
+    });
+    return '';
+  }
+}
+
+function extractInnerTubeApiKey(): string | null {
+  // Try the global ytcfg object first
+  const w = window as any;
+  const fromCfg = w.ytcfg?.data_?.INNERTUBE_API_KEY ?? w.ytcfg?.get?.('INNERTUBE_API_KEY');
+  if (typeof fromCfg === 'string' && fromCfg.length > 10) return fromCfg;
+
+  // Fall back to scanning inline scripts
+  const scripts = document.querySelectorAll('script');
+  for (const s of Array.from(scripts)) {
+    const text = s.textContent ?? '';
+    const m = text.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/);
+    if (m && m[1]) return m[1];
+  }
+
+  // Last resort: scan body's text
+  const bodyText = document.documentElement.outerHTML;
+  const m = bodyText.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/);
+  return m?.[1] ?? null;
 }
 
 /**
