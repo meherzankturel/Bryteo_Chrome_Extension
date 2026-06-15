@@ -51,7 +51,7 @@ export default defineContentScript({
 async function captureTranscript(diagnostics: Diagnostic[]) {
   const playerResponse = readPlayerResponseFromPage();
   if (!playerResponse) {
-    diagnostics.push({ step: 'playerResponse', ok: false, note: 'not found in window or scripts' });
+    diagnostics.push({ step: 'playerResponse', ok: false, note: 'not in window or scripts' });
     throw new Error('player response not found');
   }
   diagnostics.push({ step: 'playerResponse', ok: true });
@@ -63,83 +63,73 @@ async function captureTranscript(diagnostics: Diagnostic[]) {
   }
   diagnostics.push({ step: 'parseMeta', ok: true, note: `${meta.title} (${meta.durationS}s)` });
 
-  if (!meta.captionUrl) {
-    diagnostics.push({ step: 'captionUrl', ok: false, note: 'no caption track in playerResponse' });
-    throw new Error('no captions available for this video');
-  }
-  diagnostics.push({ step: 'captionUrl', ok: true, note: meta.captionUrl.slice(0, 120) + '…' });
-
   if (meta.chapters && meta.chapters.length > 0) {
     diagnostics.push({
       step: 'chapters',
       ok: true,
-      note: `${meta.chapters.length} chapter markers from YouTube`
+      note: `${meta.chapters.length} chapter markers`
     });
   } else {
     diagnostics.push({ step: 'chapters', ok: false, note: 'no chapter markers' });
   }
 
-  // --- Attempt 1: direct URL fetch (json3 → srv1 → srv3) ---
-  const formats: Array<{ fmt: 'json3' | 'srv1' | 'srv3'; parse: (body: string) => string }> = [
-    {
-      fmt: 'json3',
-      parse: (body) => {
-        try {
-          return parseJson3(JSON.parse(body));
-        } catch {
-          return '';
-        }
-      }
-    },
-    { fmt: 'srv1', parse: parseTimedTextXml },
-    { fmt: 'srv3', parse: parseTimedTextXml }
-  ];
-
-  for (const { fmt, parse } of formats) {
-    try {
-      const u = new URL(meta.captionUrl);
-      u.searchParams.set('fmt', fmt);
-
-      const resp = await fetch(u.toString());
-      const status = `HTTP ${resp.status}`;
-
-      if (!resp.ok) {
-        diagnostics.push({ step: `fetch:${fmt}`, ok: false, note: status });
-        continue;
-      }
-
-      const body = await resp.text();
-      const transcript = parse(body);
-
-      if (transcript) {
-        diagnostics.push({
-          step: `fetch:${fmt}`,
-          ok: true,
-          note: `${status}, ${transcript.length} chars`
-        });
-        return { ...meta, transcript };
-      }
-
-      diagnostics.push({
-        step: `fetch:${fmt}`,
-        ok: false,
-        note: `${status}, body ${body.length}b, parsed empty. head=${body.slice(0, 120)}`
-      });
-    } catch (e: any) {
-      diagnostics.push({ step: `fetch:${fmt}`, ok: false, note: `threw: ${e?.message ?? e}` });
+  // --- Strategy 0: DOM scrape FIRST when transcript panel is already visible ---
+  // Many users have the transcript panel pre-open. Don't waste time on URL fetches.
+  const alreadyVisible = collectSegments();
+  if (alreadyVisible.length >= 5) {
+    diagnostics.push({
+      step: 'preCheck:panelAlreadyOpen',
+      ok: true,
+      note: `${alreadyVisible.length} segments visible`
+    });
+    const transcript = extractTranscriptText(alreadyVisible);
+    if (transcript) {
+      diagnostics.push({ step: 'extracted', ok: true, note: `${transcript.length} chars (from open panel)` });
+      return { ...meta, transcript };
     }
   }
 
-  // --- Attempt 2: scrape YouTube's own transcript panel ---
-  // The URL-based fetches all failed (404, 403, empty body, or signature missing).
-  // Last resort: programmatically open YouTube's "Show transcript" panel and read it.
-  // This uses YouTube's own session/cookies — anything they require to fetch their own
-  // captions, the page already has.
+  // --- Strategy 1: direct caption-URL fetch (json3 → srv1 → srv3) ---
+  if (meta.captionUrl) {
+    diagnostics.push({ step: 'captionUrl', ok: true, note: meta.captionUrl.slice(0, 100) + '…' });
+    const formats: Array<{ fmt: 'json3' | 'srv1' | 'srv3'; parse: (b: string) => string }> = [
+      { fmt: 'json3', parse: (body) => { try { return parseJson3(JSON.parse(body)); } catch { return ''; } } },
+      { fmt: 'srv1', parse: parseTimedTextXml },
+      { fmt: 'srv3', parse: parseTimedTextXml }
+    ];
+    for (const { fmt, parse } of formats) {
+      try {
+        const u = new URL(meta.captionUrl);
+        u.searchParams.set('fmt', fmt);
+        const resp = await fetch(u.toString());
+        if (!resp.ok) {
+          diagnostics.push({ step: `fetch:${fmt}`, ok: false, note: `HTTP ${resp.status}` });
+          continue;
+        }
+        const body = await resp.text();
+        const transcript = parse(body);
+        if (transcript) {
+          diagnostics.push({ step: `fetch:${fmt}`, ok: true, note: `${transcript.length} chars` });
+          return { ...meta, transcript };
+        }
+        diagnostics.push({
+          step: `fetch:${fmt}`,
+          ok: false,
+          note: `HTTP ${resp.status}, ${body.length}b, parsed empty`
+        });
+      } catch (e: any) {
+        diagnostics.push({ step: `fetch:${fmt}`, ok: false, note: `threw: ${e?.message ?? e}` });
+      }
+    }
+  } else {
+    diagnostics.push({ step: 'captionUrl', ok: false, note: 'no caption track in playerResponse' });
+  }
+
+  // --- Strategy 2: DOM scrape with engagement-panel manipulation + button click ---
   try {
-    diagnostics.push({ step: 'domScrape', ok: false, note: 'starting' });
     const scraped = await scrapeTranscriptFromDOM(diagnostics);
     if (scraped) {
-      diagnostics.push({ step: 'domScrape', ok: true, note: `${scraped.length} chars` });
+      diagnostics.push({ step: 'extracted', ok: true, note: `${scraped.length} chars (DOM scrape)` });
       return { ...meta, transcript: scraped };
     }
   } catch (e: any) {
@@ -150,20 +140,45 @@ async function captureTranscript(diagnostics: Diagnostic[]) {
 }
 
 /**
- * Open YouTube's built-in transcript panel and harvest the text. Fragile because
- * it depends on YouTube DOM selectors, but it's the most reliable backup since
- * it uses YouTube's own session to fetch.
+ * Robust multi-strategy DOM scrape for YouTube's transcript panel.
+ *
+ * In 2026 YouTube ships several different layouts (web, web-with-redesign,
+ * mobile-web, embedded). We try in this order:
+ *   1. Already-rendered segments anywhere on the page
+ *   2. Engagement-panel direct expansion (no click needed)
+ *   3. "Show transcript" button click (with description expansion + options menu)
+ *   4. Force-render via engagement-panel hidden→expanded toggle
+ *   5. Final lazy-load scroll to fetch any remaining segments
  */
 async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
-  // 1. Find (or surface) the "Show transcript" button.
+  // Strategy A: segments already in the DOM
+  let segs = collectSegments();
+  if (segs.length >= 5) {
+    diag.push({ step: 'domScrape:alreadyVisible', ok: true, note: `${segs.length} segs` });
+    await loadAllSegments(diag);
+    segs = collectSegments();
+    return extractTranscriptText(segs);
+  }
+
+  // Strategy B: engagement panel exists but is hidden. Make it visible.
+  if (tryOpenEngagementPanel(diag)) {
+    segs = await waitForSegments(5000);
+    if (segs.length >= 5) {
+      diag.push({ step: 'domScrape:viaEngagementPanel', ok: true, note: `${segs.length} segs` });
+      await loadAllSegments(diag);
+      segs = collectSegments();
+      return extractTranscriptText(segs);
+    }
+  }
+
+  // Strategy C: click "Show transcript" button (expanding description first if needed)
   let btn = findShowTranscriptButton();
   if (!btn) {
-    // Try expanding the description first — the button is often hidden under "...more"
     const expand = findExpandDescriptionButton();
     if (expand) {
       diag.push({ step: 'domScrape:expandDesc', ok: true });
       expand.click();
-      await sleep(400);
+      await sleep(500);
       btn = findShowTranscriptButton();
     }
   }
@@ -172,7 +187,7 @@ async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
     diag.push({
       step: 'domScrape:findButton',
       ok: false,
-      note: 'no "Show transcript" button found in DOM'
+      note: 'no "Show transcript" button after expand'
     });
     return '';
   }
@@ -180,66 +195,210 @@ async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
 
   btn.click();
 
-  // 2. Wait for the transcript panel to render segments.
-  let segments: Element[] = [];
-  for (let i = 0; i < 50; i++) {
-    await sleep(100);
-    segments = Array.from(
-      document.querySelectorAll(
-        'ytd-transcript-segment-renderer, [class*="transcript-segment-renderer"]'
-      )
-    );
-    if (segments.length > 0) break;
-  }
-
-  if (segments.length === 0) {
-    diag.push({
-      step: 'domScrape:waitSegments',
-      ok: false,
-      note: 'panel never rendered any segments (5s timeout)'
-    });
+  // Wait for segments to render after click
+  segs = await waitForSegments(8000);
+  if (segs.length === 0) {
+    diag.push({ step: 'domScrape:waitSegments', ok: false, note: '8s timeout, no segments' });
     return '';
   }
-  diag.push({ step: 'domScrape:waitSegments', ok: true, note: `${segments.length} segments` });
+  diag.push({ step: 'domScrape:waitSegments', ok: true, note: `${segs.length} initial segs` });
 
-  // 3. Extract text from each segment.
-  const lines: string[] = [];
-  for (const seg of segments) {
-    const textEl = seg.querySelector(
-      '.segment-text, [class*="segment-text"], yt-formatted-string.segment-text'
-    );
-    const text = textEl?.textContent?.trim();
-    if (text) lines.push(text);
-  }
-
-  return lines.join(' ').replace(/\s+/g, ' ').trim();
+  await loadAllSegments(diag);
+  segs = collectSegments();
+  return extractTranscriptText(segs);
 }
 
+/**
+ * Find transcript segments anywhere in the page with broad selector coverage.
+ * Returns ALL matched, dedupe handled at text-extraction time.
+ */
+function collectSegments(): Element[] {
+  const selectors = [
+    'ytd-transcript-segment-renderer',
+    'ytd-transcript-segment-list-renderer ytd-transcript-segment-renderer',
+    '[class*="ytd-transcript-segment-renderer"]',
+    '[class*="transcript-segment-renderer"]',
+    'ytd-engagement-panel-section-list-renderer ytd-transcript-segment-renderer'
+  ];
+  for (const sel of selectors) {
+    const found = document.querySelectorAll(sel);
+    if (found.length > 0) return Array.from(found);
+  }
+  return [];
+}
+
+/**
+ * YouTube renders all engagement panels (chapters, transcript, comments etc.)
+ * upfront in the DOM but keeps them hidden via the `visibility` attribute.
+ * For chaptered/transcripted videos we can flip that attribute to EXPANDED and
+ * the panel renders without any button click.
+ */
+function tryOpenEngagementPanel(diag: Diagnostic[]): boolean {
+  const panels = document.querySelectorAll<HTMLElement>(
+    'ytd-engagement-panel-section-list-renderer'
+  );
+  for (const panel of Array.from(panels)) {
+    const target = panel.getAttribute('target-id') ?? '';
+    if (target.toLowerCase().includes('transcript')) {
+      panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+      diag.push({
+        step: 'domScrape:engagementPanelFlip',
+        ok: true,
+        note: `target=${target}`
+      });
+      return true;
+    }
+  }
+  diag.push({ step: 'domScrape:engagementPanelFlip', ok: false, note: 'no transcript panel in DOM' });
+  return false;
+}
+
+/**
+ * Multi-pattern button finder. YouTube ships at least 5 different button shells:
+ *   - <button aria-label="Show transcript">
+ *   - <yt-button-renderer> with inner button
+ *   - <tp-yt-paper-button> (legacy material)
+ *   - <ytd-button-renderer>
+ *   - role="button" on a div (some newer layouts)
+ * Plus the label text varies: "Show transcript", "Transcript", "Open transcript".
+ */
 function findShowTranscriptButton(): HTMLElement | null {
-  const candidates = document.querySelectorAll('button, tp-yt-paper-button, ytd-button-renderer button');
+  const candidates = document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], tp-yt-paper-button, ytd-button-renderer button, yt-button-renderer button'
+  );
   for (const el of Array.from(candidates)) {
-    const aria = el.getAttribute('aria-label')?.toLowerCase() ?? '';
-    const text = el.textContent?.toLowerCase().trim() ?? '';
-    if (aria.includes('show transcript') || text === 'show transcript') {
-      return el as HTMLElement;
+    const aria = (el.getAttribute('aria-label') ?? '').toLowerCase();
+    const text = (el.textContent ?? '').toLowerCase().trim();
+    const matchesAria =
+      aria === 'show transcript' ||
+      aria === 'transcript' ||
+      aria.startsWith('show transcript') ||
+      aria.startsWith('open transcript');
+    const matchesText =
+      text === 'show transcript' || text === 'transcript' || text === 'open transcript';
+    if (matchesAria || matchesText) {
+      // Reject "hide transcript" / "close transcript" buttons that share text patterns
+      if (aria.includes('hide') || aria.includes('close')) continue;
+      return el;
     }
   }
   return null;
 }
 
 function findExpandDescriptionButton(): HTMLElement | null {
-  const explicit = document.querySelector<HTMLElement>(
-    'tp-yt-paper-button#expand, ytd-text-inline-expander #expand'
-  );
-  if (explicit) return explicit;
+  // Try the well-known selectors first
+  const selectors = [
+    'tp-yt-paper-button#expand',
+    'ytd-text-inline-expander #expand',
+    'ytd-video-description-renderer #expand',
+    '#description-inline-expander #expand',
+    '#description #expand'
+  ];
+  for (const sel of selectors) {
+    const el = document.querySelector<HTMLElement>(sel);
+    if (el) return el;
+  }
 
-  for (const b of Array.from(document.querySelectorAll('button'))) {
-    const t = b.textContent?.trim().toLowerCase() ?? '';
-    if (t === '...more' || t === 'show more' || t === 'more') {
-      return b as HTMLElement;
-    }
+  // Fallback: text-based
+  for (const b of Array.from(document.querySelectorAll<HTMLElement>('button, tp-yt-paper-button'))) {
+    const t = (b.textContent ?? '').trim().toLowerCase();
+    if (t === '...more' || t === '…more' || t === 'show more' || t === 'more') return b;
   }
   return null;
+}
+
+/**
+ * MutationObserver-backed segment-wait. Resolves as soon as ANY segments appear,
+ * or after maxMs with whatever's there (could be []).
+ */
+function waitForSegments(maxMs: number): Promise<Element[]> {
+  return new Promise((resolve) => {
+    const initial = collectSegments();
+    if (initial.length > 0) {
+      resolve(initial);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const segs = collectSegments();
+      if (segs.length > 0) {
+        observer.disconnect();
+        resolve(segs);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(collectSegments());
+    }, maxMs);
+  });
+}
+
+/**
+ * Some YouTube transcript panels lazy-load segments as the user scrolls. Pre-render
+ * everything by scrolling the panel to the bottom and waiting briefly. This keeps
+ * us from missing 80% of a long course's transcript.
+ */
+async function loadAllSegments(diag: Diagnostic[]): Promise<void> {
+  // Find the scrollable transcript container
+  const scrollContainer = document.querySelector<HTMLElement>(
+    '#segments-container, ytd-transcript-search-panel-renderer, ' +
+      'ytd-transcript-renderer #body, [class*="transcript-renderer"] [class*="body"]'
+  );
+
+  if (!scrollContainer) return;
+
+  let prevCount = collectSegments().length;
+  let stableRounds = 0;
+
+  // Scroll repeatedly until segment count stops growing for 3 consecutive rounds.
+  for (let i = 0; i < 25 && stableRounds < 3; i++) {
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    await sleep(150);
+    const nowCount = collectSegments().length;
+    if (nowCount === prevCount) stableRounds++;
+    else { stableRounds = 0; prevCount = nowCount; }
+  }
+
+  diag.push({
+    step: 'domScrape:loadedAll',
+    ok: true,
+    note: `${prevCount} segments after lazy-load scroll`
+  });
+}
+
+/**
+ * Pull readable text out of segment elements. Tries a hierarchy of selectors,
+ * falls back to raw textContent with timestamp prefix stripped.
+ * Filters duplicate adjacent lines (common in some transcript layouts).
+ */
+function extractTranscriptText(segments: Element[]): string {
+  const lines: string[] = [];
+  let lastLine = '';
+
+  for (const seg of segments) {
+    let text = '';
+    const textEl = seg.querySelector<HTMLElement>(
+      '.segment-text, [class*="segment-text"], yt-formatted-string.segment-text, ' +
+        'yt-formatted-string[class*="segment"]'
+    );
+    if (textEl) text = (textEl.textContent ?? '').trim();
+
+    if (!text) {
+      // Fallback: raw text + strip "0:00" / "00:00" / "0:00:00" timestamp prefix
+      text = (seg.textContent ?? '').trim();
+      text = text.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, '');
+    }
+
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text && text !== lastLine) {
+      lines.push(text);
+      lastLine = text;
+    }
+  }
+
+  return lines.join(' ').trim();
 }
 
 function sleep(ms: number): Promise<void> {
