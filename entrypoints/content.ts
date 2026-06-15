@@ -245,17 +245,21 @@ function dumpTranscriptPanelStructure(): void {
 }
 
 /**
- * Find transcript segments. Has to be VERY aggressive because YouTube's 2026
- * "PAmodern" transcript panel uses different element names than the classic
- * ytd-transcript-segment-renderer. Strategy:
+ * Find transcript segments anywhere on the page. Must handle:
+ *   - Classic engagement panel: ytd-transcript-segment-renderer (legacy)
+ *   - PAmodern engagement panel: ytd-search-segment-renderer (2026)
+ *   - INLINE description-area transcript: new YouTube 2025+ layout where the
+ *     panel is rendered directly under the video description, not in the
+ *     side engagement panel. Different DOM entirely.
  *
- *   1. Try every known explicit tag name (old + new variants)
- *   2. Try class-based broad selectors
- *   3. Find the transcript engagement panel, then either take direct children
- *      of a segments-container OR find anything with a timestamp-prefixed text
- *      pattern inside the panel.
- *
- * Returns whichever pattern produces the most segments (>= 2 to be useful).
+ * Strategy:
+ *   1. Explicit known tag names
+ *   2. Class-based selectors
+ *   3. Direct children of any transcript engagement panel's segments-container
+ *   4. GLOBAL timestamp-pattern detection — find ANY element whose textContent
+ *      starts with "0:00 word..." (timestamp + text). Cluster by parent; the
+ *      parent with the most such children IS the transcript container,
+ *      wherever YouTube renders it.
  */
 function collectSegments(): Element[] {
   // 1. Explicit tag names (old + modern + experimental)
@@ -270,7 +274,7 @@ function collectSegments(): Element[] {
     if (found.length > 0) return Array.from(found);
   }
 
-  // 2. Broad class-based selectors
+  // 2. Class-based selectors
   const classSels = [
     '[class*="transcript-segment-renderer"]',
     '[class*="ytd-transcript-segment"]',
@@ -282,19 +286,16 @@ function collectSegments(): Element[] {
     if (found.length > 0) return Array.from(found);
   }
 
-  // 3. Search inside any transcript engagement panel
+  // 3. Direct children of any transcript engagement panel's segments-container
   const panelSelectors = [
     'ytd-engagement-panel-section-list-renderer[target-id*="transcript"]',
     'ytd-engagement-panel-section-list-renderer[target-id*="PAmodern_transcript"]',
     '[target-id*="transcript_view"]',
     '[target-id*="transcript"]'
   ];
-
   for (const ps of panelSelectors) {
     const panel = document.querySelector(ps);
     if (!panel) continue;
-
-    // 3a. Direct children of a segments-container
     const containerSels = [
       '#segments-container',
       '[id*="segments-container"]',
@@ -307,20 +308,65 @@ function collectSegments(): Element[] {
         return Array.from(container.children);
       }
     }
-
-    // 3b. Timestamp-pattern fallback: any leaf-ish descendant whose
-    // textContent starts with "0:00" / "00:00" / "0:00:00"
-    const allEls = Array.from(panel.querySelectorAll<HTMLElement>('*'));
-    const timestampRe = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s+\S/;
-    const candidates = allEls.filter((el) => {
-      if (el.children.length > 5) return false; // skip large containers
-      const text = el.textContent ?? '';
-      return timestampRe.test(text) && text.length < 600 && text.length > 6;
-    });
-    if (candidates.length >= 2) return candidates;
   }
 
-  return [];
+  // 4. GLOBAL timestamp-pattern detection. This catches YouTube's new
+  // inline-transcript layout (rendered in description area, not engagement
+  // panel) AND any other format we haven't seen yet.
+  return findTimestampedSegmentsGlobally();
+}
+
+/**
+ * Walk the whole page looking for elements whose textContent starts with a
+ * timestamp ("0:00", "00:00", "0:00:00") followed by text. Cluster matches by
+ * parent — the parent with the most such children is the transcript container.
+ * This works no matter where YouTube renders the transcript (engagement panel,
+ * description area, new inline panel, future layouts).
+ */
+function findTimestampedSegmentsGlobally(): Element[] {
+  const timestampRe = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s+\S/;
+  const allEls = document.querySelectorAll<HTMLElement>('*');
+  const matches: HTMLElement[] = [];
+
+  for (const el of Array.from(allEls)) {
+    // Skip large/wrong-shape elements early
+    if (el.children.length > 3) continue;
+    const tag = el.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') continue;
+    const text = el.textContent ?? '';
+    if (text.length < 6 || text.length > 600) continue;
+    if (!timestampRe.test(text)) continue;
+    matches.push(el);
+  }
+
+  if (matches.length === 0) return [];
+
+  // Cluster by parent element — the parent with the most matches is the
+  // transcript container. Other "0:00 ..." text on the page (chapter
+  // descriptions, comment timestamps) will live in different parents and
+  // get filtered out.
+  const parentCount = new Map<Element, number>();
+  for (const el of matches) {
+    const p = el.parentElement;
+    if (!p) continue;
+    parentCount.set(p, (parentCount.get(p) ?? 0) + 1);
+  }
+
+  let bestParent: Element | null = null;
+  let bestCount = 0;
+  for (const [parent, count] of parentCount.entries()) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestParent = parent;
+    }
+  }
+
+  if (bestParent && bestCount >= 3) {
+    return matches.filter((m) => m.parentElement === bestParent);
+  }
+
+  // No dominant parent — return all matches if we have a reasonable number
+  return matches.length >= 5 ? matches : [];
 }
 
 /**
