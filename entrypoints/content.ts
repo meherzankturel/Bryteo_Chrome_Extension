@@ -162,8 +162,15 @@ async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
 
   // Strategy B: engagement panel exists but is hidden. Make it visible.
   if (tryOpenEngagementPanel(diag)) {
-    segs = await waitForSegments(5000);
-    if (segs.length >= 5) {
+    // Scroll the panel into view in case YouTube uses IntersectionObserver to
+    // trigger segment render on visibility (some 2026 layouts do).
+    const transcriptPanel = document.querySelector<HTMLElement>(
+      '[target-id*="transcript"]'
+    );
+    transcriptPanel?.scrollIntoView({ block: 'center' });
+
+    segs = await waitForSegments(7000);
+    if (segs.length >= 2) {
       diag.push({ step: 'domScrape:viaEngagementPanel', ok: true, note: `${segs.length} segs` });
       await loadAllSegments(diag);
       segs = collectSegments();
@@ -196,9 +203,13 @@ async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
   btn.click();
 
   // Wait for segments to render after click
-  segs = await waitForSegments(8000);
+  segs = await waitForSegments(10_000);
   if (segs.length === 0) {
-    diag.push({ step: 'domScrape:waitSegments', ok: false, note: '8s timeout, no segments' });
+    diag.push({ step: 'domScrape:waitSegments', ok: false, note: '10s timeout, no segments' });
+    // Defensive diagnostic: snapshot the transcript panel so we can see what
+    // new DOM structure YouTube shipped. Goes to the page console only —
+    // would blow up the diagnostics payload if we round-tripped it.
+    dumpTranscriptPanelStructure();
     return '';
   }
   diag.push({ step: 'domScrape:waitSegments', ok: true, note: `${segs.length} initial segs` });
@@ -208,22 +219,107 @@ async function scrapeTranscriptFromDOM(diag: Diagnostic[]): Promise<string> {
   return extractTranscriptText(segs);
 }
 
+function dumpTranscriptPanelStructure(): void {
+  const panel =
+    document.querySelector('[target-id*="transcript"]') ??
+    document.querySelector('ytd-engagement-panel-section-list-renderer');
+  if (!panel) {
+    console.log('[bryteo:debug] no transcript panel element found at all');
+    return;
+  }
+  console.log('[bryteo:debug] transcript panel tag:', panel.tagName);
+  console.log('[bryteo:debug] target-id:', panel.getAttribute('target-id'));
+  console.log('[bryteo:debug] visibility:', panel.getAttribute('visibility'));
+  console.log('[bryteo:debug] outerHTML head (first 3000 chars):');
+  console.log((panel as HTMLElement).outerHTML.slice(0, 3000));
+
+  // Also log what looks like potential segment elements
+  const allEls = panel.querySelectorAll('*');
+  const sampleTags = new Set<string>();
+  for (const el of Array.from(allEls).slice(0, 500)) {
+    if (el.tagName.toLowerCase().includes('segment') || el.tagName.toLowerCase().includes('transcript')) {
+      sampleTags.add(el.tagName.toLowerCase());
+    }
+  }
+  console.log('[bryteo:debug] transcript-related tag names inside panel:', [...sampleTags]);
+}
+
 /**
- * Find transcript segments anywhere in the page with broad selector coverage.
- * Returns ALL matched, dedupe handled at text-extraction time.
+ * Find transcript segments. Has to be VERY aggressive because YouTube's 2026
+ * "PAmodern" transcript panel uses different element names than the classic
+ * ytd-transcript-segment-renderer. Strategy:
+ *
+ *   1. Try every known explicit tag name (old + new variants)
+ *   2. Try class-based broad selectors
+ *   3. Find the transcript engagement panel, then either take direct children
+ *      of a segments-container OR find anything with a timestamp-prefixed text
+ *      pattern inside the panel.
+ *
+ * Returns whichever pattern produces the most segments (>= 2 to be useful).
  */
 function collectSegments(): Element[] {
-  const selectors = [
+  // 1. Explicit tag names (old + modern + experimental)
+  const explicitTags = [
     'ytd-transcript-segment-renderer',
-    'ytd-transcript-segment-list-renderer ytd-transcript-segment-renderer',
-    '[class*="ytd-transcript-segment-renderer"]',
-    '[class*="transcript-segment-renderer"]',
-    'ytd-engagement-panel-section-list-renderer ytd-transcript-segment-renderer'
+    'ytd-search-segment-renderer',
+    'yt-transcript-segment-renderer',
+    'yt-search-segment-renderer'
   ];
-  for (const sel of selectors) {
+  for (const tag of explicitTags) {
+    const found = document.querySelectorAll(tag);
+    if (found.length > 0) return Array.from(found);
+  }
+
+  // 2. Broad class-based selectors
+  const classSels = [
+    '[class*="transcript-segment-renderer"]',
+    '[class*="ytd-transcript-segment"]',
+    '[class*="yt-transcript-segment"]',
+    '[class*="search-segment-renderer"]'
+  ];
+  for (const sel of classSels) {
     const found = document.querySelectorAll(sel);
     if (found.length > 0) return Array.from(found);
   }
+
+  // 3. Search inside any transcript engagement panel
+  const panelSelectors = [
+    'ytd-engagement-panel-section-list-renderer[target-id*="transcript"]',
+    'ytd-engagement-panel-section-list-renderer[target-id*="PAmodern_transcript"]',
+    '[target-id*="transcript_view"]',
+    '[target-id*="transcript"]'
+  ];
+
+  for (const ps of panelSelectors) {
+    const panel = document.querySelector(ps);
+    if (!panel) continue;
+
+    // 3a. Direct children of a segments-container
+    const containerSels = [
+      '#segments-container',
+      '[id*="segments-container"]',
+      '[class*="segments-container"]',
+      'ytd-transcript-segment-list-renderer'
+    ];
+    for (const cs of containerSels) {
+      const container = panel.querySelector(cs);
+      if (container && container.children.length >= 2) {
+        return Array.from(container.children);
+      }
+    }
+
+    // 3b. Timestamp-pattern fallback: any leaf-ish descendant whose
+    // textContent starts with "0:00" / "00:00" / "0:00:00"
+    const allEls = Array.from(panel.querySelectorAll<HTMLElement>('*'));
+    const timestampRe = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s+\S/;
+    const candidates = allEls.filter((el) => {
+      if (el.children.length > 5) return false; // skip large containers
+      const text = el.textContent ?? '';
+      return timestampRe.test(text) && text.length < 600 && text.length > 6;
+    });
+    if (candidates.length >= 2) return candidates;
+  }
+
   return [];
 }
 
