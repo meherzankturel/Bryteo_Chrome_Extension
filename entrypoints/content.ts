@@ -172,7 +172,7 @@ async function tryInnerTubeCaptions(
   videoId: string,
   diag: Diagnostic[]
 ): Promise<string> {
-  // Extract INNERTUBE_API_KEY from the page (it's embedded in ytcfg or scripts)
+  // Extract INNERTUBE_API_KEY + VISITOR_DATA from the page (both required)
   const apiKey = extractInnerTubeApiKey();
   if (!apiKey) {
     diag.push({ step: 'innerTube:apiKey', ok: false, note: 'no INNERTUBE_API_KEY in page' });
@@ -180,28 +180,44 @@ async function tryInnerTubeCaptions(
   }
   diag.push({ step: 'innerTube:apiKey', ok: true });
 
-  // POST to InnerTube player endpoint with Android client context
+  const visitorData = extractVisitorData();
+  diag.push({
+    step: 'innerTube:visitorData',
+    ok: !!visitorData,
+    note: visitorData ? 'present' : 'not found (will try without)'
+  });
+
+  // POST to InnerTube player endpoint with Android client context. The 400
+  // we saw earlier was because YouTube now requires visitorData and a current
+  // client version. Mid-2026: ANDROID 20.10.38 with visitorData works.
   let playerData: any;
   try {
+    const context: any = {
+      client: {
+        clientName: 'ANDROID',
+        clientVersion: '20.10.38',
+        androidSdkVersion: 34,
+        hl: 'en',
+        gl: 'US',
+        utcOffsetMinutes: 0,
+        userAgent:
+          'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip'
+      }
+    };
+    if (visitorData) {
+      context.client.visitorData = visitorData;
+    }
+
     const resp = await fetch(
       `https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'ANDROID',
-              clientVersion: '19.09.37',
-              androidSdkVersion: 30,
-              hl: 'en',
-              gl: 'US',
-              userAgent:
-                'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip'
-            }
-          },
-          videoId
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          'X-YouTube-Client-Name': '3',  // 3 = ANDROID
+          'X-YouTube-Client-Version': '20.10.38'
+        },
+        body: JSON.stringify({ context, videoId })
       }
     );
     if (!resp.ok) {
@@ -289,6 +305,27 @@ async function tryInnerTubeCaptions(
     });
     return '';
   }
+}
+
+function extractVisitorData(): string | null {
+  const w = window as any;
+  // Try ytcfg first
+  const fromCfg =
+    w.ytcfg?.data_?.VISITOR_DATA ??
+    w.ytcfg?.data_?.INNERTUBE_CONTEXT?.client?.visitorData ??
+    w.ytcfg?.get?.('VISITOR_DATA') ??
+    w.ytcfg?.get?.('INNERTUBE_CONTEXT')?.client?.visitorData;
+  if (typeof fromCfg === 'string' && fromCfg.length > 5) return fromCfg;
+
+  // Scan inline scripts
+  const scripts = document.querySelectorAll('script');
+  for (const s of Array.from(scripts)) {
+    const text = s.textContent ?? '';
+    const m = text.match(/"VISITOR_DATA":\s*"([^"]+)"/) ??
+              text.match(/"visitorData":\s*"([^"]+)"/);
+    if (m && m[1] && m[1].length > 5) return m[1];
+  }
+  return null;
 }
 
 function extractInnerTubeApiKey(): string | null {
@@ -496,17 +533,20 @@ function collectSegments(): Element[] {
  * description area, new inline panel, future layouts).
  */
 function findTimestampedSegmentsGlobally(): Element[] {
-  const timestampRe = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s+\S/;
+  // CRITICAL: YouTube often renders timestamp and text in separate <span> children
+  // with NO whitespace between them. The combined textContent is "0:07got any gays"
+  // — no space. So we use \s* (zero-or-more whitespace) not \s+ (one-or-more).
+  const timestampRe = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[A-Za-z\[]/;
   const allEls = document.querySelectorAll<HTMLElement>('*');
   const matches: HTMLElement[] = [];
 
   for (const el of Array.from(allEls)) {
     // Skip large/wrong-shape elements early
-    if (el.children.length > 3) continue;
+    if (el.children.length > 5) continue;
     const tag = el.tagName;
-    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') continue;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'HEAD') continue;
     const text = el.textContent ?? '';
-    if (text.length < 6 || text.length > 600) continue;
+    if (text.length < 6 || text.length > 800) continue;
     if (!timestampRe.test(text)) continue;
     matches.push(el);
   }
