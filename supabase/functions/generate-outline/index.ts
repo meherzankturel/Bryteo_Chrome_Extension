@@ -142,19 +142,22 @@ serve(async (req) => {
 
     const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
 
-    // Scale output budget to expected section count and verbosity. Each terse
-    // section ≈ 110 tokens; each verbose section ≈ 250 tokens. Add a 30% safety
-    // buffer. Gemini 2.5 Flash supports up to 65K output tokens, so we have
-    // headroom for any realistic outline.
+    // Scale output budget to expected section count. Be GENEROUS — Gemini 2.5
+    // Flash supports up to 65K output tokens; even our biggest realistic
+    // outline (60-section chaptered marathon) fits well under that. At Flash
+    // pricing (~$0.30/M tokens), 8K-16K output is ~$0.002-0.005 per outline.
+    // No reason to ration this so tight we hit MAX_TOKENS and have to retry.
     const expectedSections =
       usedChapters.length > 0
         ? usedChapters.length
         : estimateSectionsFromDuration(body.durationS);
     const tersePerSection = usedChapters.length >= 10;
-    const tokensPerSection = tersePerSection ? 110 : 250;
+    const tokensPerSection = tersePerSection ? 180 : 400;
+    // Floor at 8192 so short videos with verbose summaries don't get cut off.
+    // Cap at 32K (well below the 65K model max but still comfortable).
     const maxOutputTokens = Math.min(
       32_768,
-      Math.max(2048, Math.round(expectedSections * tokensPerSection * 1.3) + 800)
+      Math.max(8192, expectedSections * tokensPerSection + 1500)
     );
     console.log(
       `[generate-outline] expectedSections=${expectedSections} ` +
