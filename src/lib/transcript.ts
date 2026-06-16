@@ -1,5 +1,14 @@
 export type Chapter = { title: string; start_s: number };
 
+/**
+ * How the captions were sourced. Affects how confidently we can present
+ * facts derived from them.
+ *   - manual: creator uploaded their own caption file → ~99% accurate
+ *   - asr:    YouTube auto-generated speech recognition → ~85-95% accurate
+ *   - unknown: couldn't determine from playerResponse
+ */
+export type CaptionKind = 'manual' | 'asr' | 'unknown';
+
 export type VideoMeta = {
   videoId: string;
   title: string;
@@ -7,6 +16,7 @@ export type VideoMeta = {
   durationS: number;
   thumbnailUrl: string;
   captionUrl: string | null;
+  captionKind: CaptionKind;
   chapters?: Chapter[];
 };
 
@@ -51,6 +61,13 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
     ? tracks.find((t: any) => t.languageCode === 'en') ?? tracks[0]
     : null;
 
+  // Determine whether the chosen track is auto-generated (ASR) or manually
+  // uploaded. ASR tracks set kind: "asr" on the track object.
+  let captionKind: CaptionKind = 'unknown';
+  if (englishTrack) {
+    captionKind = englishTrack.kind === 'asr' ? 'asr' : 'manual';
+  }
+
   const chapters = parseChapters(pr);
 
   return {
@@ -60,6 +77,7 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
     durationS: parseInt(d.lengthSeconds ?? '0', 10),
     thumbnailUrl: d.thumbnail?.thumbnails?.[0]?.url ?? '',
     captionUrl: englishTrack?.baseUrl ?? null,
+    captionKind,
     chapters: chapters.length > 0 ? chapters : undefined
   };
 }

@@ -49,7 +49,11 @@ async function ensureContentScript(tabId: number): Promise<void> {
 
 export function useGenerateOutline() {
   return useMutation({
-    mutationFn: async (): Promise<{ videoId: string; outline: OutlinePayload }> => {
+    mutationFn: async (): Promise<{
+      videoId: string;
+      outline: OutlinePayload;
+      captionKind?: 'manual' | 'asr' | 'unknown';
+    }> => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) throw new Error('Open a YouTube video tab first.');
 
@@ -103,7 +107,13 @@ export function useGenerateOutline() {
       // resp.payload now includes chapters from playerResponse when present —
       // generateOutline forwards them to the Edge Function which uses them as
       // the section scaffold.
-      return generateOutline(resp.payload);
+      const captionKind = resp.payload?.captionKind as
+        | 'manual'
+        | 'asr'
+        | 'unknown'
+        | undefined;
+      const result = await generateOutline(resp.payload);
+      return { ...result, captionKind };
     }
   });
 }
