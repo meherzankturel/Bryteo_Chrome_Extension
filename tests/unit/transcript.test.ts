@@ -4,7 +4,8 @@ import {
   parsePlayerResponse,
   parseTimedTextXml,
   parseJson3,
-  parseChapters
+  parseChapters,
+  assessTranscriptQuality
 } from '@/lib/transcript';
 
 describe('parsePlayerResponse', () => {
@@ -17,8 +18,36 @@ describe('parsePlayerResponse', () => {
       durationS: 1234,
       thumbnailUrl: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
       captionUrl: 'https://www.youtube.com/api/timedtext?v=abc123&lang=en',
-      captionKind: 'manual'
+      captionKind: 'manual',
+      category: undefined
     });
+  });
+
+  it('extracts category from microformat.playerMicroformatRenderer', () => {
+    const withMicroformat = {
+      ...fixture,
+      microformat: {
+        playerMicroformatRenderer: {
+          category: 'Education'
+        }
+      }
+    };
+    const r = parsePlayerResponse(withMicroformat);
+    expect(r?.category).toBe('Education');
+  });
+
+  it('falls back to videoDetails.category when microformat is absent', () => {
+    const withVideoDetailsCategory = {
+      ...fixture,
+      videoDetails: { ...fixture.videoDetails, category: 'Science & Technology' }
+    };
+    const r = parsePlayerResponse(withVideoDetailsCategory);
+    expect(r?.category).toBe('Science & Technology');
+  });
+
+  it('returns undefined category when neither field is set', () => {
+    const r = parsePlayerResponse(fixture);
+    expect(r?.category).toBeUndefined();
   });
 
   it('returns null captionUrl when no captions exist', () => {
@@ -121,6 +150,53 @@ describe('parseJson3', () => {
     expect(parseJson3(null)).toBe('');
     expect(parseJson3({})).toBe('');
     expect(parseJson3({ events: 'not-an-array' })).toBe('');
+  });
+});
+
+describe('assessTranscriptQuality', () => {
+  it('flags too-short transcripts (<300 chars)', () => {
+    const r = assessTranscriptQuality('Hi there, welcome to the channel.');
+    expect(r).toEqual({ ok: false, reason: 'too-short' });
+  });
+
+  it('flags music-notation-heavy transcripts', () => {
+    // 20 [Music] markers + a few short connector words → music-marker ratio
+    // dominates. Pad to >=300 chars so the too-short check doesn't fire first.
+    const padded = ('[Music] yeah '.repeat(40)).padEnd(400, ' ');
+    const r = assessTranscriptQuality(padded);
+    expect(r).toEqual({ ok: false, reason: 'mostly-music' });
+  });
+
+  it('flags chorus-style repetitive transcripts', () => {
+    // 200 words, but only ~5 unique words — top-10 dominates total count.
+    const chorus = ('na na na hey hey yeah yeah baby baby oh '.repeat(20)).trim();
+    expect(chorus.length).toBeGreaterThan(300);
+    const r = assessTranscriptQuality(chorus);
+    expect(r).toEqual({ ok: false, reason: 'too-repetitive' });
+  });
+
+  it('accepts a normal lecture-style transcript', () => {
+    // 30 varied sentences — long enough, no music markers, low repetition.
+    const sentences = [
+      'Today we are going to talk about how transformers work in machine learning.',
+      'The architecture was introduced in the paper Attention Is All You Need.',
+      'Each transformer layer combines self-attention with a feed-forward network.',
+      'Self-attention computes a weighted average of values based on similarity.',
+      'The keys queries and values are linear projections of the input embeddings.',
+      'Positional encodings inject information about token order into the model.',
+      'Multi-head attention runs several attention computations in parallel.',
+      'Residual connections and layer normalization stabilize deeper networks.',
+      'The decoder uses masked self-attention to prevent peeking at future tokens.',
+      'Cross attention lets the decoder consult the encoder representations.',
+      'Training uses teacher forcing where the model sees the correct previous token.',
+      'Beam search improves generation quality at inference time over greedy decoding.',
+      'Larger models tend to follow predictable scaling laws across many domains.',
+      'Pretraining on next-token prediction transfers surprisingly well to many tasks.',
+      'Fine-tuning adapts a pretrained model to a downstream task with less data.'
+    ];
+    const transcript = sentences.join(' ');
+    const r = assessTranscriptQuality(transcript);
+    expect(r).toEqual({ ok: true });
   });
 });
 

@@ -1,5 +1,33 @@
 import { useMutation } from '@tanstack/react-query';
 import { generateOutline, type OutlinePayload } from '../api/outlines';
+import { classifyContent } from '../lib/content-type';
+import { assessTranscriptQuality } from '../lib/transcript';
+
+/**
+ * Discriminated union describing why a pre-Gemini gate fired. The side panel
+ * reads this off the thrown error to decide which notice copy to render and
+ * to drive the "Analyze anyway" CTA.
+ */
+export type AnalyzeGate =
+  | { kind: 'non-educational'; category?: string }
+  | { kind: 'borderline'; category?: string }
+  | {
+      kind: 'transcript-quality';
+      reason: 'too-short' | 'mostly-music' | 'too-repetitive';
+    };
+
+/**
+ * Error subclass we attach the gate metadata to. Callers can detect it with
+ * the `gate` property — easier than parsing `error.message`.
+ */
+export class GateError extends Error {
+  gate: AnalyzeGate;
+  constructor(gate: AnalyzeGate) {
+    super(`gate:${gate.kind}`);
+    this.name = 'GateError';
+    this.gate = gate;
+  }
+}
 
 /**
  * Ping the content script on the given tab. Returns true if it responds,
@@ -49,7 +77,9 @@ async function ensureContentScript(tabId: number): Promise<void> {
 
 export function useGenerateOutline() {
   return useMutation({
-    mutationFn: async (): Promise<{
+    mutationFn: async (
+      opts?: { override?: boolean }
+    ): Promise<{
       videoId: string;
       outline: OutlinePayload;
       captionKind?: 'manual' | 'asr' | 'unknown';
@@ -102,6 +132,31 @@ export function useGenerateOutline() {
           throw new Error('Refresh the YouTube tab (Cmd+R), then try again.');
         }
         throw new Error(err);
+      }
+
+      // --- Pre-Gemini gates ---
+      // Cheap, local checks that decide whether the video is worth a Gemini
+      // call at all. The user can always click "Analyze anyway" to bypass —
+      // that re-fires this mutation with { override: true } which skips the
+      // gates entirely.
+      if (!opts?.override) {
+        const verdict = classifyContent(resp.payload?.category);
+        if (verdict === 'non-educational') {
+          throw new GateError({
+            kind: 'non-educational',
+            category: resp.payload?.category
+          });
+        }
+        if (verdict === 'borderline') {
+          throw new GateError({
+            kind: 'borderline',
+            category: resp.payload?.category
+          });
+        }
+        const q = assessTranscriptQuality(resp.payload?.transcript ?? '');
+        if (!q.ok) {
+          throw new GateError({ kind: 'transcript-quality', reason: q.reason });
+        }
       }
 
       // resp.payload now includes chapters from playerResponse when present —

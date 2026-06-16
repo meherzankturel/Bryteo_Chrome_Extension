@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useProfile } from '../../src/hooks/use-profile';
-import { useGenerateOutline } from '../../src/hooks/use-outline';
+import {
+  useGenerateOutline,
+  GateError,
+  type AnalyzeGate
+} from '../../src/hooks/use-outline';
 import {
   useCurrentVideoOutline,
   watchTabChanges
 } from '../../src/hooks/use-current-video-outline';
 import { OutlineView } from '../../src/components/OutlineView';
 import { ThemeToggle } from '../../src/components/ThemeToggle';
+import { describeForUser } from '../../src/lib/content-type';
 
 const isMac =
   typeof navigator !== 'undefined' &&
@@ -29,9 +34,9 @@ export default function App() {
     }
   }
 
-  function startAnalyze() {
+  function startAnalyze(opts?: { override?: boolean }) {
     setForceAnalyze(false);
-    gen.mutate(undefined, {
+    gen.mutate(opts, {
       onSuccess: () => {
         // Bust the cached-outline cache so a re-mount sees the fresh one.
         cached.refetch();
@@ -43,6 +48,11 @@ export default function App() {
     setForceAnalyze(true);
     gen.reset();
   }
+
+  // If the mutation rejected with a GateError, pull the metadata so the UI
+  // can render the right notice instead of the generic error state.
+  const gate: AnalyzeGate | null =
+    gen.error instanceof GateError ? gen.error.gate : null;
 
   // When the user navigates to a different YouTube video while the panel is
   // open, re-check the cache for that video.
@@ -114,9 +124,17 @@ export default function App() {
       <section className="flex-1 overflow-y-auto px-[18px] py-6">
         {showCacheCheck && <CacheCheckState />}
 
-        {showIdle && (
+        {showIdle && gate && (
+          <GateNotice
+            gate={gate}
+            onAnalyzeAnyway={() => startAnalyze({ override: true })}
+            onReset={reset}
+          />
+        )}
+
+        {showIdle && !gate && (
           <IdleState
-            onAnalyze={startAnalyze}
+            onAnalyze={() => startAnalyze()}
             error={gen.error?.message}
             isMac={isMac}
           />
@@ -288,4 +306,123 @@ function LoadingState() {
       <p className="font-mono text-[11px] text-[var(--color-text-3)]">~ 10s</p>
     </div>
   );
+}
+
+/**
+ * Inline card shown when a pre-Gemini gate fires (non-educational category,
+ * borderline category, or transcript-quality fail). Same gold-left-accent
+ * treatment as the ASR caption warning — visually consistent "heads up" voice.
+ */
+function GateNotice({
+  gate,
+  onAnalyzeAnyway,
+  onReset
+}: {
+  gate: AnalyzeGate;
+  onAnalyzeAnyway: () => void;
+  onReset: () => void;
+}) {
+  const { headline, body } = gateCopy(gate);
+
+  return (
+    <div className="pt-[60px] flex flex-col items-center">
+      <div
+        className="
+          w-full max-w-[300px]
+          px-4 py-3.5 rounded-[8px]
+          bg-[var(--color-surface-1)] border border-[var(--color-border)]
+        "
+        style={{ borderLeftColor: 'var(--color-gold)', borderLeftWidth: '3px' }}
+      >
+        <div className="flex items-start gap-2.5">
+          <span
+            style={{ color: 'var(--color-gold)' }}
+            className="font-bold mt-[1px] text-[14px]"
+          >
+            !
+          </span>
+          <div>
+            <p className="text-[13px] font-semibold text-[var(--color-text)] mb-1 leading-[1.4]">
+              {headline}
+            </p>
+            <p className="text-[12px] text-[var(--color-text-2)] leading-[1.5]">
+              {body}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-col items-stretch gap-2 w-full max-w-[300px]">
+        <button
+          onClick={onAnalyzeAnyway}
+          className="
+            inline-flex items-center justify-center gap-2 px-[18px] py-[10px] rounded-[7px]
+            bg-[var(--color-text)] text-[var(--color-bg)]
+            font-semibold text-[13px] tracking-[0.01em]
+            transition-all duration-200
+            hover:translate-y-[-1px] hover:opacity-90
+            focus:outline-none focus:ring-2 focus:ring-[var(--color-gold)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg)]
+          "
+          style={{ boxShadow: 'var(--shadow-cta)' }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.boxShadow = 'var(--shadow-cta-hover)')
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.boxShadow = 'var(--shadow-cta)')
+          }
+        >
+          Analyze anyway
+        </button>
+        <button
+          onClick={onReset}
+          className="
+            text-[12px] text-[var(--color-text-3)] hover:text-[var(--color-text)]
+            transition-colors py-1
+          "
+        >
+          Try a different video
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Copy for each gate kind, written user-facing — second person, no jargon,
+ * acknowledges that BRYTEO might be wrong and lets the user override.
+ */
+function gateCopy(gate: AnalyzeGate): { headline: string; body: string } {
+  if (gate.kind === 'non-educational') {
+    const desc = describeForUser(gate.category);
+    return {
+      headline: `This looks like a ${desc} video.`,
+      body: "BRYTEO works best on learning content — lectures, tutorials, explainers. Flashcards from this probably won't be useful."
+    };
+  }
+  if (gate.kind === 'borderline') {
+    return {
+      headline: 'This may not be the best fit for flashcards.',
+      body: "We can't tell if there's enough teachable content here. Worth a shot if you think there is."
+    };
+  }
+  if (gate.kind === 'transcript-quality') {
+    if (gate.reason === 'too-short') {
+      return {
+        headline: 'Not enough spoken content.',
+        body: "There isn't enough transcript here to build a useful study aid."
+      };
+    }
+    if (gate.reason === 'mostly-music') {
+      return {
+        headline: 'Mostly music.',
+        body: "This transcript is mainly music notation — it won't produce meaningful flashcards."
+      };
+    }
+    return {
+      headline: 'Very repetitive transcript.',
+      body: 'The same words repeat throughout — likely a chorus-heavy song. Flashcards probably won\'t be useful.'
+    };
+  }
+  // Exhaustiveness fallback (shouldn't hit).
+  return { headline: 'Heads up.', body: 'BRYTEO is not sure this video will produce a useful outline.' };
 }

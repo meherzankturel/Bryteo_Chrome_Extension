@@ -18,6 +18,13 @@ export type VideoMeta = {
   captionUrl: string | null;
   captionKind: CaptionKind;
   chapters?: Chapter[];
+  /**
+   * YouTube category as published in the playerResponse. Used by the content
+   * classifier to gate non-educational videos before we burn a Gemini call.
+   * Lives in microformat.playerMicroformatRenderer.category most reliably,
+   * with a fallback to videoDetails.category on older payload shapes.
+   */
+  category?: string;
 };
 
 /**
@@ -70,6 +77,19 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
 
   const chapters = parseChapters(pr);
 
+  // YouTube exposes the user-visible category two ways depending on response
+  // shape: modern responses put it in microformat.playerMicroformatRenderer;
+  // older / stripped responses sometimes only set videoDetails.category.
+  const microformatCategory =
+    pr?.microformat?.playerMicroformatRenderer?.category;
+  const videoDetailsCategory = d?.category;
+  const rawCategory =
+    typeof microformatCategory === 'string' && microformatCategory.trim()
+      ? microformatCategory.trim()
+      : typeof videoDetailsCategory === 'string' && videoDetailsCategory.trim()
+        ? videoDetailsCategory.trim()
+        : undefined;
+
   return {
     videoId: d.videoId,
     title: d.title ?? '',
@@ -78,7 +98,8 @@ export function parsePlayerResponse(pr: any): VideoMeta | null {
     thumbnailUrl: d.thumbnail?.thumbnails?.[0]?.url ?? '',
     captionUrl: englishTrack?.baseUrl ?? null,
     captionKind,
-    chapters: chapters.length > 0 ? chapters : undefined
+    chapters: chapters.length > 0 ? chapters : undefined,
+    category: rawCategory
   };
 }
 
@@ -127,6 +148,51 @@ function decodeOnce(s: string): string {
  * auto-generated tracks. Returned by appending `?fmt=json3`. Shape:
  *   { wireMagic: "pb3", events: [{ tStartMs, dDurationMs, segs: [{utf8: "..."}] }] }
  */
+/**
+ * Cheap pre-Gemini check on the transcript itself. Lets us refuse music videos,
+ * silent / mostly-music content, and chorus-heavy song lyrics before paying for
+ * a Gemini call we know will produce garbage flashcards.
+ *
+ * Heuristics:
+ *   - too-short: <300 chars after trim → likely silent / non-speech video
+ *   - mostly-music: >30% of words are `[Music]`-style notation markers
+ *   - too-repetitive: the top-10 most-common words make up >60% of total
+ *     word occurrences → chorus-heavy lyrics or repetitive ad copy
+ */
+export type TranscriptQuality =
+  | { ok: true }
+  | { ok: false; reason: 'too-short' | 'mostly-music' | 'too-repetitive' };
+
+export function assessTranscriptQuality(transcript: string): TranscriptQuality {
+  if (transcript.trim().length < 300) {
+    return { ok: false, reason: 'too-short' };
+  }
+
+  const musicMarkers = transcript.match(
+    /\[(?:Music|music|♪|♫)\]|\(\s*music\s*\)|♪|♫/g
+  );
+  const musicMarkerCount = musicMarkers?.length ?? 0;
+  const words = transcript.split(/\s+/).filter(Boolean).length;
+  if (words > 0 && musicMarkerCount / words > 0.3) {
+    return { ok: false, reason: 'mostly-music' };
+  }
+
+  // Word-frequency repetition: tokenize on non-word boundaries (lowercased),
+  // then check whether the top-10 unique words dominate the distribution.
+  const wordCounts = new Map<string, number>();
+  for (const w of transcript.toLowerCase().split(/\W+/).filter(Boolean)) {
+    wordCounts.set(w, (wordCounts.get(w) ?? 0) + 1);
+  }
+  const sorted = [...wordCounts.values()].sort((a, b) => b - a);
+  const top10 = sorted.slice(0, 10).reduce((a, b) => a + b, 0);
+  const total = sorted.reduce((a, b) => a + b, 0);
+  if (total > 100 && top10 / total > 0.6) {
+    return { ok: false, reason: 'too-repetitive' };
+  }
+
+  return { ok: true };
+}
+
 export function parseJson3(json: any): string {
   if (!json || !Array.isArray(json.events)) return '';
   const parts: string[] = [];
