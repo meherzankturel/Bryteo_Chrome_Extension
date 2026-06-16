@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BRYTEO — Direction A: Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAF7F0;
+    --paper-deep: #F2EDE0;
+    --ink: #1A1A2E;
+    --ink-soft: #5C5A6E;
+    --gold: #B89055;
+    --gold-deep: #8A6638;
+    --rule: #E7E0CE;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #2D2A24;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .stage-label {
+    color: #AAA59A;
+    font-size: 12px;
+    text-align: center;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .panel {
+    width: 380px;
+    height: 720px;
+    background: var(--paper);
+    border-radius: 8px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--ink);
+  }
+  .panel-header {
+    padding: 14px 18px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand img {
+    width: 24px;
+    height: 24px;
+  }
+  .brand-name {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .counter {
+    font-size: 11px;
+    color: var(--ink-soft);
+    letter-spacing: 0.06em;
+    font-feature-settings: "tnum";
+  }
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 18px;
+  }
+
+  /* Idle state */
+  .idle {
+    text-align: center;
+    padding-top: 60px;
+  }
+  .idle-mark {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 20px;
+    opacity: 0.9;
+  }
+  .idle-title {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.2;
+    margin: 0 0 8px;
+  }
+  .idle-sub {
+    font-size: 13px;
+    color: var(--ink-soft);
+    max-width: 240px;
+    margin: 0 auto 28px;
+    line-height: 1.5;
+  }
+  .cta-primary {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 12px 24px;
+    border: none;
+    border-radius: 999px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(26,26,46,0.18);
+  }
+  .cta-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(26,26,46,0.28);
+  }
+
+  /* Outline state */
+  .outline {
+  }
+  .video-title {
+    font-family: 'Fraunces', serif;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.3;
+    margin: 0 0 4px;
+    color: var(--ink);
+  }
+  .video-meta {
+    font-size: 11px;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+    margin-bottom: 18px;
+  }
+  .section-card {
+    background: #FFFFFF;
+    border-radius: 6px;
+    padding: 16px 16px 14px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 0 rgba(26,26,46,0.04), 0 1px 4px rgba(26,26,46,0.04);
+    border: 1px solid rgba(231,224,206,0.6);
+  }
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .section-title {
+    font-family: 'Fraunces', serif;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.25;
+    margin: 0;
+    color: var(--ink);
+  }
+  .section-ts {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--gold-deep);
+    font-feature-settings: "tnum";
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    border-bottom: 1px dotted var(--gold);
+    padding-bottom: 1px;
+  }
+  .section-ts:hover {
+    color: var(--gold);
+    border-bottom-style: solid;
+  }
+  .section-summary {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .section-summary::first-letter {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 1.05em;
+    color: var(--ink);
+  }
+  .points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .points li {
+    font-size: 12px;
+    color: var(--ink);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .points li::before {
+    content: "·";
+    position: absolute;
+    left: 4px;
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 16px;
+    line-height: 0.6;
+  }
+  .footer-cta {
+    margin-top: 4px;
+    width: 100%;
+    padding: 13px 0;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: 6px;
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .footer-cta:hover {
+    background: #2D2A50;
+  }
+
+  /* Loading state */
+  .loading {
+    text-align: center;
+    padding-top: 120px;
+  }
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 14px;
+    border: 2px solid var(--paper-deep);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-family: 'Fraunces', serif;
+    font-size: 14px;
+    color: var(--ink);
+    margin: 0 0 4px;
+  }
+  .loading-sub {
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+
+  /* Ornamental divider */
+  .ornament {
+    text-align: center;
+    color: var(--gold);
+    font-size: 12px;
+    letter-spacing: 0.8em;
+    margin: 10px 0 16px;
+    opacity: 0.7;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="stage-label">Idle</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <div class="idle">
+        <img src="bulb.png" alt="" class="idle-mark">
+        <h1 class="idle-title">Ready when you are</h1>
+        <p class="idle-sub">Open a YouTube video and let bryteo turn it into a study aid you'll actually remember.</p>
+        <button class="cta-primary">Analyze this video</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="stage-label">Loading</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p class="loading-text">Reading the lecture…</p>
+        <p class="loading-sub">Usually takes 5–15 seconds.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="stage-label">Outline</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <h2 class="video-title">8.1 Introduction to Linear Algebra</h2>
+      <div class="video-meta">Decode AiML · 49:56</div>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Why Linear Algebra Matters</h3>
+          <span class="section-ts">0:00 — 4:20</span>
+        </header>
+        <p class="section-summary">Why this branch of mathematics underpins almost every modern machine-learning algorithm, and how thinking in vectors changes the way you reason about data.</p>
+        <ul class="points">
+          <li>The data-is-a-vector mental model</li>
+          <li>Why neural nets are matrix multiplications</li>
+          <li>Three problems linear algebra solves</li>
+        </ul>
+      </article>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Vectors and Their Geometry</h3>
+          <span class="section-ts">4:20 — 14:10</span>
+        </header>
+        <p class="section-summary">Vectors as both arrows in space and lists of numbers; the geometric intuition that makes higher-dimensional reasoning feel less abstract.</p>
+        <ul class="points">
+          <li>Magnitude vs direction</li>
+          <li>Dot product as similarity</li>
+          <li>Basis vectors and span</li>
+        </ul>
+      </article>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Matrices as Transformations</h3>
+          <span class="section-ts">14:10 — 28:00</span>
+        </header>
+        <p class="section-summary">Matrices aren't just grids — they describe how a transformation reshapes space, and that single shift in framing makes determinants and eigenvalues click.</p>
+        <ul class="points">
+          <li>Rotation, shear, scale</li>
+          <li>What the determinant really measures</li>
+          <li>Why eigenvectors matter</li>
+        </ul>
+      </article>
+
+      <div class="ornament">·  ·  ·</div>
+      <button class="footer-cta">Generate flashcards</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

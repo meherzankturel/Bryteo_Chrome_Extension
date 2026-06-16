@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BRYTEO — Pick Your Light Theme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #07080C;
+    color: #E5E5E5;
+    min-height: 100vh;
+    padding: 60px 40px;
+  }
+  header {
+    text-align: center;
+    max-width: 780px;
+    margin: 0 auto 40px;
+  }
+  .eyebrow {
+    color: #8B8FA8;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 14px;
+    color: white;
+    line-height: 1.1;
+  }
+  .lead {
+    color: #A0A4B8;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  .locked-banner {
+    max-width: 760px;
+    margin: 0 auto 60px;
+    background: #11121A;
+    border: 1px solid #2A2B33;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .locked-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: #0E0F12;
+    border: 1px solid #2A2B33;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .locked-icon img { width: 22px; height: 22px; }
+  .locked-text {
+    flex: 1;
+  }
+  .locked-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #76FFB0;
+    margin-bottom: 2px;
+  }
+  .locked-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #F4F4F2;
+  }
+  .locked-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #76777E;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 24px;
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #11121A;
+    border: 1px solid #1F2030;
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+  }
+  .card:hover {
+    border-color: #34374D;
+    transform: translateY(-3px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .card-preview {
+    height: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid #1F2030;
+  }
+  .card-G .card-preview { background: #F5F1E8; }
+  .card-H .card-preview { background: #F4F5F8; }
+  .card-I .card-preview {
+    background:
+      radial-gradient(ellipse 80% 50% at top, rgba(244,240,234,0.9), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 30% 90%, rgba(218,224,232,0.7), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 70%, rgba(232,224,236,0.6), transparent 60%),
+      linear-gradient(135deg, #F4F0EA, #F0F2F7);
+  }
+  .mini-panel {
+    width: 160px;
+    height: 200px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .card-G .mini-panel {
+    background: #F5F1E8;
+    border: 1px solid #E5DECE;
+    box-shadow: 0 12px 32px rgba(28,25,21,0.18);
+  }
+  .card-H .mini-panel {
+    background: #F4F5F8;
+    border: 1px solid #E1E4EA;
+    box-shadow: 0 12px 32px rgba(14,15,18,0.15);
+  }
+  .card-I .mini-panel {
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(28,25,40,0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.5),
+      0 12px 32px rgba(26,26,42,0.15);
+  }
+  .mini-header {
+    padding: 8px 10px;
+    border-bottom: 1px solid;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .card-G .mini-header { border-color: #E5DECE; background: #FAF6EC; }
+  .card-H .mini-header { border-color: #E1E4EA; background: #FFFFFF; }
+  .card-I .mini-header {
+    border-color: rgba(28,25,40,0.08);
+    background: rgba(255,255,255,0.5);
+  }
+  .mini-header img { width: 11px; height: 11px; }
+  .mini-header span {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+  }
+  .card-G .mini-header span { color: #1C1915; }
+  .card-H .mini-header span { color: #0E0F12; }
+  .card-I .mini-header span { color: #1A1A2A; }
+  .mini-body {
+    padding: 10px;
+    flex: 1;
+  }
+  .mini-block {
+    width: 100%;
+    border-radius: 3px;
+    margin-bottom: 5px;
+  }
+  .mini-block.h1 { height: 8px; }
+  .mini-block.h2 { height: 4px; width: 70%; }
+  .mini-block.h3 { height: 3px; width: 90%; }
+  .mini-block.cta { height: 10px; margin-top: 8px; border-radius: 4px; }
+  .card-G .mini-block { background: rgba(28,25,21,0.08); }
+  .card-G .mini-block.cta { background: #1C1915; }
+  .card-H .mini-block { background: rgba(14,15,18,0.08); }
+  .card-H .mini-block.cta { background: #0E0F12; }
+  .card-I .mini-block { background: rgba(26,26,42,0.07); }
+  .card-I .mini-block.cta {
+    background: linear-gradient(135deg, #1A1A2A, #2A2A3A);
+  }
+
+  .card-content {
+    padding: 26px 28px 30px;
+  }
+  .badge-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 11px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+  }
+  .card-G .badge { background: rgba(160,122,56,0.18); color: #D4A77B; }
+  .card-H .badge { background: #1F2030; color: #C8CCDC; }
+  .card-I .badge {
+    background: linear-gradient(135deg, rgba(173,109,255,0.18), rgba(160,122,56,0.18));
+    color: #E8D8B8;
+  }
+  .badge-letter {
+    font-size: 11px;
+    color: #5F6378;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .card-name {
+    font-size: 24px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 8px;
+    letter-spacing: -0.015em;
+  }
+  .card-vibe {
+    color: #A0A4B8;
+    font-size: 14px;
+    margin-bottom: 22px;
+    line-height: 1.5;
+  }
+  .card-traits {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 26px;
+  }
+  .trait {
+    font-size: 12.5px;
+    color: #D4D8E8;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.45;
+  }
+  .trait-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 6px;
+  }
+  .card-G .trait-dot { background: #A07A38; }
+  .card-H .trait-dot { background: #B89055; }
+  .card-I .trait-dot { background: #A07A38; box-shadow: 0 0 6px rgba(160,122,56,0.4); }
+  .card-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: white;
+    color: #07080C;
+    text-decoration: none;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13.5px;
+    letter-spacing: 0.005em;
+    transition: all 0.2s ease;
+  }
+  .card-cta:hover {
+    background: #E5E5E5;
+    transform: translateX(2px);
+  }
+  .footer {
+    text-align: center;
+    margin-top: 80px;
+    color: #5F6378;
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .footer .older {
+    color: #8B8FA8;
+    margin-top: 12px;
+    font-size: 12px;
+  }
+  .footer a {
+    color: #8B8FA8;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .footer a:hover { color: #C8CCDC; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Pick the Light Companion</div>
+  <h1>Three light themes to pair with Midnight</h1>
+  <p class="lead">All three share the same layout, typography (Inter + JetBrains Mono), and card density as Midnight — only the color palette changes. Toggle between dark and light feels seamless because nothing else moves.</p>
+</header>
+
+<div class="locked-banner">
+  <div class="locked-icon">
+    <img src="bulb.png" alt="">
+  </div>
+  <div class="locked-text">
+    <div class="locked-label">LOCKED · DARK MODE</div>
+    <div class="locked-name">D · Midnight (Charcoal dev premium)</div>
+  </div>
+  <div class="locked-sub">#0E0F12</div>
+</div>
+
+<div class="grid">
+
+  <div class="card card-G">
+    <div class="card-preview">
+      <div class="mini-panel">
+        <div class="mini-header">
+          <img src="bulb.png" alt="">
+          <span>BRYTEO</span>
+        </div>
+        <div class="mini-body">
+          <div class="mini-block h1"></div>
+          <div class="mini-block h3"></div>
+          <div class="mini-block h3" style="width:80%"></div>
+          <div class="mini-block h2"></div>
+          <div class="mini-block h3" style="width:60%"></div>
+          <div class="mini-block cta"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-content">
+      <div class="badge-row">
+        <span class="badge-letter">G</span>
+        <span class="badge">PAPER</span>
+      </div>
+      <div class="card-name">Warm cream</div>
+      <p class="card-vibe">Cream paper background matching your brand artwork. Strong brand resonance with the gold bulb. Feels like a beautifully aged notebook in daylight.</p>
+      <div class="card-traits">
+        <div class="trait"><span class="trait-dot"></span><span>Warm cream #F5F1E8 base (matches your logo paper)</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>White cards with hairline bronze-tinted borders</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Bronze gold accents (#A07A38) for timestamps</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Deep ink CTAs (warm dark #1C1915)</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Strongest brand alignment of the three</span></div>
+      </div>
+      <a href="G-paper.html" class="card-cta">See it live →</a>
+    </div>
+  </div>
+
+  <div class="card card-H">
+    <div class="card-preview">
+      <div class="mini-panel">
+        <div class="mini-header">
+          <img src="bulb.png" alt="">
+          <span>BRYTEO</span>
+        </div>
+        <div class="mini-body">
+          <div class="mini-block h1"></div>
+          <div class="mini-block h3"></div>
+          <div class="mini-block h3" style="width:80%"></div>
+          <div class="mini-block h2"></div>
+          <div class="mini-block h3" style="width:60%"></div>
+          <div class="mini-block cta"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-content">
+      <div class="badge-row">
+        <span class="badge-letter">H</span>
+        <span class="badge">GLACIER</span>
+      </div>
+      <div class="card-name">Cool slate</div>
+      <p class="card-vibe">Linear's light mode. Cool gray-blue base with white cards. Mirrors Midnight perfectly — toggling between them feels like flipping a switch on the same room.</p>
+      <div class="card-traits">
+        <div class="trait"><span class="trait-dot"></span><span>Cool slate #F4F5F8 base — never blinding</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Same #0E0F12 text as Midnight inverted</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Gold accents only on timestamp hover</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Tightest visual parity with Midnight dark</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Most professional / dev-tool feel</span></div>
+      </div>
+      <a href="H-glacier.html" class="card-cta">See it live →</a>
+    </div>
+  </div>
+
+  <div class="card card-I">
+    <div class="card-preview">
+      <div class="mini-panel">
+        <div class="mini-header">
+          <img src="bulb.png" alt="">
+          <span>BRYTEO</span>
+        </div>
+        <div class="mini-body">
+          <div class="mini-block h1"></div>
+          <div class="mini-block h3"></div>
+          <div class="mini-block h3" style="width:80%"></div>
+          <div class="mini-block h2"></div>
+          <div class="mini-block h3" style="width:60%"></div>
+          <div class="mini-block cta"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-content">
+      <div class="badge-row">
+        <span class="badge-letter">I</span>
+        <span class="badge">MIST</span>
+      </div>
+      <div class="card-name">Aurora light</div>
+      <p class="card-vibe">macOS Sonoma × Notion light. Subtle warm-to-cool gradient mesh, frosted glass cards with backdrop blur. Most distinctive — the "premium light" feel.</p>
+      <div class="card-traits">
+        <div class="trait"><span class="trait-dot"></span><span>Soft gradient: cream → cool blue-gray wash</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Frosted glass cards (real backdrop-filter)</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Pill-shaped CTAs, rounded gold timestamp chips</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Pulsing gold orb on idle (matches Midnight's aura)</span></div>
+        <div class="trait"><span class="trait-dot"></span><span>Most "designed" — slightly aspirational feel</span></div>
+      </div>
+      <a href="I-mist.html" class="card-cta">See it live →</a>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Click each direction's "See it live", feel the interaction states.<br>
+  Reply with the letter — or mix elements ("H but with I's frosted cards").
+  <div class="older">
+    Want to revisit dark mode?
+    <a href="D-midnight.html">D · Midnight</a> · the locked dark theme.
+  </div>
+</div>
+
+</body>
+</html>

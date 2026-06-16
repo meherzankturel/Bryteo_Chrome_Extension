@@ -6,19 +6,30 @@ export const outlineRequest = z.object({
   channel: z.string().optional(),
   durationS: z.number().int().optional(),
   thumbnailUrl: z.string().url().optional(),
-  transcript: z.string().min(50).max(50_000)
+  // 500K chars covers up to ~6-8h lecture courses while staying well under
+  // Gemini's 1M-token context window.
+  transcript: z.string().min(50).max(500_000),
+  // YouTube's own chapter markers when present — used as the section scaffold
+  // for chaptered videos (much more accurate than letting the AI guess).
+  chapters: z
+    .array(z.object({ title: z.string().min(1), start_s: z.number().int().nonnegative() }))
+    .max(64)
+    .optional()
 });
 
 export const outlineSection = z.object({
-  title: z.string(),
-  summary: z.string(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
   start_s: z.number().int().nonnegative(),
   end_s: z.number().int().nonnegative(),
-  key_points: z.array(z.string()).min(1).max(8)
+  // Normalization ensures we never receive 0 key_points (we backfill from
+  // summary). The min(1) here is the contract — anything emptier is a bug.
+  key_points: z.array(z.string().min(1)).min(1).max(8)
 });
 
 export const outlineResponse = z.object({
-  sections: z.array(outlineSection).min(1).max(12)
+  // Cap raised from 12 to 60 so chaptered marathon courses don't get truncated.
+  sections: z.array(outlineSection).min(1).max(60)
 });
 
 export const cardsRequest = z.object({

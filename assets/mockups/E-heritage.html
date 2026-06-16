@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BRYTEO — Direction E: Heritage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1D1A17;
+    --bg-grain: #211E1B;
+    --surface-1: #25221E;
+    --surface-2: #2D2924;
+    --surface-3: #35302A;
+    --border: #36312B;
+    --border-strong: #4A4339;
+    --cream: #F0EBE0;
+    --cream-2: #B8B0A0;
+    --cream-3: #7C7669;
+    --bronze: #B89055;
+    --bronze-bright: #D4A77B;
+    --bronze-dim: #8A6638;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0A0907;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .stage-label {
+    color: var(--cream-3);
+    font-size: 11px;
+    text-align: center;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+  }
+  .panel {
+    width: 380px;
+    height: 720px;
+    background:
+      radial-gradient(ellipse at top, rgba(184,144,85,0.05), transparent 60%),
+      var(--bg);
+    border-radius: 8px;
+    box-shadow:
+      0 30px 80px rgba(0,0,0,0.7),
+      0 0 0 1px rgba(184,144,85,0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--cream);
+    position: relative;
+  }
+  /* Subtle paper grain via repeating tiny dots */
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(184,144,85,0.025) 0.5px, transparent 1px);
+    background-size: 4px 4px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .panel-header {
+    padding: 14px 18px;
+    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    z-index: 2;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand img {
+    width: 22px;
+    height: 22px;
+  }
+  .brand-name {
+    font-family: 'Newsreader', serif;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    font-size: 13px;
+    color: var(--cream);
+  }
+  .counter {
+    font-size: 11px;
+    color: var(--cream-3);
+    font-feature-settings: "tnum";
+    letter-spacing: 0.05em;
+  }
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 26px 20px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Idle */
+  .idle {
+    text-align: center;
+    padding-top: 70px;
+  }
+  .idle-mark-wrap {
+    position: relative;
+    width: 78px;
+    height: 78px;
+    margin: 0 auto 28px;
+  }
+  .idle-mark-aura {
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(184,144,85,0.18), transparent 70%);
+  }
+  .idle-mark-wrap img {
+    width: 64px;
+    height: 64px;
+    position: relative;
+    z-index: 1;
+    margin: 7px;
+    filter: drop-shadow(0 2px 8px rgba(184,144,85,0.3));
+  }
+  .idle-title {
+    font-family: 'Newsreader', serif;
+    font-weight: 500;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+    color: var(--cream);
+    margin: 0 0 8px;
+    line-height: 1.2;
+  }
+  .idle-sub {
+    font-size: 13.5px;
+    color: var(--cream-2);
+    max-width: 260px;
+    margin: 0 auto 30px;
+    line-height: 1.6;
+  }
+  .cta-primary {
+    background: linear-gradient(180deg, var(--bronze-bright), var(--bronze));
+    color: #1D1A17;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 999px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.15) inset,
+      0 4px 14px rgba(184,144,85,0.25);
+  }
+  .cta-primary:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.2) inset,
+      0 8px 20px rgba(184,144,85,0.4);
+  }
+
+  /* Outline */
+  .video-meta-block {
+    margin-bottom: 22px;
+  }
+  .video-source {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    color: var(--bronze);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .video-title {
+    font-family: 'Newsreader', serif;
+    font-weight: 500;
+    font-size: 19px;
+    color: var(--cream);
+    line-height: 1.25;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  .ornament-rule {
+    margin: 22px auto 18px;
+    text-align: center;
+    color: var(--bronze);
+    font-family: 'Newsreader', serif;
+    font-size: 14px;
+    letter-spacing: 0.5em;
+    opacity: 0.5;
+  }
+  .section-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 16px 14px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+    position: relative;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.02),
+      0 1px 2px rgba(0,0,0,0.25);
+  }
+  .section-card:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+  }
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .section-title {
+    font-family: 'Newsreader', serif;
+    font-weight: 500;
+    font-size: 15.5px;
+    color: var(--cream);
+    margin: 0;
+    line-height: 1.25;
+    letter-spacing: -0.005em;
+  }
+  .section-ts {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--bronze);
+    cursor: pointer;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    border-bottom: 1px dotted rgba(184,144,85,0.4);
+    padding-bottom: 1px;
+  }
+  .section-ts:hover {
+    color: var(--bronze-bright);
+    border-bottom-color: var(--bronze-bright);
+  }
+  .section-summary {
+    font-family: 'Newsreader', serif;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--cream-2);
+    margin: 0 0 10px;
+  }
+  .section-summary::first-letter {
+    font-family: 'Newsreader', serif;
+    font-weight: 600;
+    font-size: 1.1em;
+    color: var(--cream);
+  }
+  .points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .points li {
+    font-size: 12.5px;
+    color: var(--cream);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .points li::before {
+    content: "·";
+    position: absolute;
+    left: 4px;
+    color: var(--bronze);
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 0.5;
+    top: 8px;
+  }
+  .footer-cta {
+    margin-top: 8px;
+    width: 100%;
+    padding: 13px 0;
+    background: linear-gradient(180deg, var(--bronze-bright), var(--bronze));
+    color: #1D1A17;
+    border: none;
+    border-radius: 6px;
+    font-family: 'Newsreader', serif;
+    font-weight: 500;
+    font-size: 14.5px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.18) inset,
+      0 4px 14px rgba(184,144,85,0.2);
+  }
+  .footer-cta:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.22) inset,
+      0 8px 20px rgba(184,144,85,0.35);
+  }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding-top: 120px;
+  }
+  .candle {
+    width: 30px;
+    height: 30px;
+    margin: 0 auto 18px;
+    border: 1.5px solid rgba(184,144,85,0.2);
+    border-top-color: var(--bronze);
+    border-radius: 50%;
+    animation: spin 1.1s cubic-bezier(.4,.0,.6,1) infinite;
+    filter: drop-shadow(0 0 12px rgba(184,144,85,0.3));
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-family: 'Newsreader', serif;
+    font-size: 15px;
+    color: var(--cream);
+    margin: 0 0 4px;
+    font-style: italic;
+  }
+  .loading-sub {
+    font-size: 11px;
+    color: var(--cream-3);
+    letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="stage-label">Idle</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <div class="idle">
+        <div class="idle-mark-wrap">
+          <div class="idle-mark-aura"></div>
+          <img src="bulb.png" alt="">
+        </div>
+        <h1 class="idle-title">Ready when you are</h1>
+        <p class="idle-sub">Open a YouTube video. We'll turn it into something worth remembering.</p>
+        <button class="cta-primary">Analyze this video</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="stage-label">Loading</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <div class="loading">
+        <div class="candle"></div>
+        <p class="loading-text">Reading the lecture…</p>
+        <p class="loading-sub">— a few seconds —</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="stage-label">Outline</div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="brand">
+        <img src="bulb.png" alt="">
+        <div class="brand-name">BRYTEO</div>
+      </div>
+      <div class="counter">0 / 50</div>
+    </div>
+    <div class="panel-body">
+      <div class="video-meta-block">
+        <div class="video-source">Decode AiML · 49:56</div>
+        <h2 class="video-title">8.1 Introduction to Linear Algebra</h2>
+      </div>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Why Linear Algebra Matters</h3>
+          <span class="section-ts">0:00</span>
+        </header>
+        <p class="section-summary">Why this branch of mathematics underpins almost every modern machine-learning algorithm, and how thinking in vectors changes the way you reason about data.</p>
+        <ul class="points">
+          <li>The data-is-a-vector mental model</li>
+          <li>Why neural nets are matrix multiplications</li>
+          <li>Three problems linear algebra solves</li>
+        </ul>
+      </article>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Vectors and Their Geometry</h3>
+          <span class="section-ts">4:20</span>
+        </header>
+        <p class="section-summary">Vectors as both arrows in space and lists of numbers; the geometric intuition that makes higher-dimensional reasoning feel less abstract.</p>
+        <ul class="points">
+          <li>Magnitude vs direction</li>
+          <li>Dot product as similarity</li>
+          <li>Basis vectors and span</li>
+        </ul>
+      </article>
+
+      <article class="section-card">
+        <header class="section-head">
+          <h3 class="section-title">Matrices as Transformations</h3>
+          <span class="section-ts">14:10</span>
+        </header>
+        <p class="section-summary">Matrices aren't grids — they describe how a transformation reshapes space.</p>
+        <ul class="points">
+          <li>Rotation, shear, scale</li>
+          <li>What the determinant measures</li>
+        </ul>
+      </article>
+
+      <div class="ornament-rule">· · ·</div>
+      <button class="footer-cta">Generate flashcards</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
