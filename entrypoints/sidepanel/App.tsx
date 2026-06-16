@@ -132,6 +132,7 @@ export default function App() {
             >
               ← Analyze another video
             </button>
+            {gen.data?.captionKind === 'asr' && <AsrCaptionWarning />}
             <OutlineView
               outline={effectiveOutline.outline}
               onSeek={seek}
@@ -143,6 +144,26 @@ export default function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function AsrCaptionWarning() {
+  return (
+    <div
+      className="
+        flex items-start gap-2 px-3 py-2 rounded-[6px]
+        bg-[var(--color-surface-2)] border border-[var(--color-border)]
+        text-[11.5px] leading-[1.45] text-[var(--color-text-2)]
+      "
+      style={{ borderLeftColor: 'var(--color-gold)', borderLeftWidth: '2px' }}
+    >
+      <span style={{ color: 'var(--color-gold)' }} className="font-bold mt-[1px]">⚠</span>
+      <span>
+        <span className="font-semibold text-[var(--color-text)]">Auto-generated captions.</span>{' '}
+        Technical terms and numbers may be slightly off. Verify key facts against the
+        video before relying on them.
+      </span>
+    </div>
   );
 }
 

@@ -14,7 +14,10 @@ export const outlineRequest = z.object({
   chapters: z
     .array(z.object({ title: z.string().min(1), start_s: z.number().int().nonnegative() }))
     .max(64)
-    .optional()
+    .optional(),
+  // Source of the captions. ASR (auto-generated) can mis-hear technical terms,
+  // so the prompt warns the AI to be extra conservative with named claims.
+  captionKind: z.enum(['manual', 'asr', 'unknown']).optional()
 });
 
 export const outlineSection = z.object({

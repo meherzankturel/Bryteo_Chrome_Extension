@@ -11,7 +11,7 @@ import { sampleTranscript } from '../_shared/sampling.ts';
 // AND fast enough to return in 3-5s even for marathon courses.
 const PROMPT_TRANSCRIPT_CHARS = 30_000;
 
-const SYSTEM = `You convert YouTube transcripts into structured study outlines.
+const SYSTEM = `You convert YouTube transcripts into structured study outlines used by people to STUDY. Accuracy is critical — wrong facts mean someone memorizes wrong things.
 
 Return JSON ONLY, in this exact shape:
 {
@@ -26,16 +26,24 @@ Return JSON ONLY, in this exact shape:
   ]
 }
 
-Rules — these are strict, your response will be rejected otherwise:
-1. If chapter markers are provided in the user message, use them as the section list. ONE section per chapter, in the same order. Use the chapter title as the section title. Do not invent extra sections, do not merge chapters.
-2. If no chapter markers are provided, generate sections by inferring structure from the transcript:
+ACCURACY RULES — non-negotiable:
+- Use ONLY facts explicitly stated or directly demonstrated in the transcript. Do NOT add general knowledge, definitions, or context the speaker didn't say.
+- If the transcript is unclear or you're guessing, DO NOT include that fact. Omit > invent.
+- Quote the speaker's actual terminology and phrasing when possible. Do not paraphrase technical terms into "easier" wording — keep "useState" as "useState", not "the state hook".
+- Banned hedge words in key_points: "likely", "probably", "might", "may", "perhaps", "supposedly", "appears to". If you find yourself using one, the fact isn't certain enough to include — drop it.
+- For named claims (years, numbers, version numbers, names): copy them character-for-character from the transcript. Never round or approximate.
+- Auto-generated captions can mis-hear technical terms (e.g., "useState" → "use state", "PostgreSQL" → "post grass equal"). When a phrase looks suspicious AND you can't infer the intended term with high confidence, use the transcript phrase verbatim — let the user catch the ASR error.
+
+STRUCTURE RULES:
+1. If chapter markers are provided in the user message, use them as the section list. ONE section per chapter, in the same order. Use the chapter title as the section title.
+2. If no chapter markers, infer structure from the transcript:
    - Short videos (under 15 min): 3-5 sections
    - Medium videos (15-60 min): 5-8 sections
    - Long lectures/courses (1h+): 8-12 sections
-3. start_s and end_s MUST be integer seconds (not strings, not decimals). Both must be within the video duration. end_s must be > start_s.
-4. key_points MUST be a non-empty array of 2-6 concrete factual strings. If a section is short and lacks 2 distinct points, repeat the most important fact rather than emit an empty array.
-5. Section titles should use the video's actual terminology, never generic labels like "Section 1".
-6. summary is one paragraph; key_points are one-line facts (not sentences with subordinate clauses).
+3. start_s and end_s MUST be integer seconds within the video duration. end_s > start_s.
+4. key_points MUST be a non-empty array of 2-6 concrete factual strings. Each one one-line, no hedge words, attributable to the transcript.
+5. Section titles use the video's actual terminology, never generic labels.
+6. summary is one paragraph describing what the section actually covers (not what it "might" cover or "could" mean).
 7. Reply with ONLY the JSON. No prose, no markdown fences, no comments.`;
 
 serve(async (req) => {
@@ -140,7 +148,15 @@ serve(async (req) => {
       chapterDirective = `\n\nThis video has chapter markers set by the creator. Use them as your section boundaries — ONE outline section per chapter, in the same order. Don't merge or split chapters. Use the chapter title as your section title.${terseGuidance}\n\nChapters:\n${chapterList}${truncatedNote}`;
     }
 
-    const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
+    // Warn the AI when captions are ASR-sourced (auto-generated). Studies show
+    // ASR accuracy is 85-95% — technical terms, proper nouns, and numbers can
+    // be mis-transcribed. The AI should be extra conservative on named claims.
+    const asrWarning =
+      body.captionKind === 'asr'
+        ? '\n\nIMPORTANT: This transcript is from YouTube auto-generated captions (ASR). Technical terms, version numbers, proper nouns, and code snippets may be mis-transcribed (e.g., "useState" → "use state", "PostgreSQL" → "post grass equal"). Be conservative — if a named claim looks suspicious, omit it rather than guess. Prefer general concepts over specific named facts you can\'t verify.'
+        : '';
+
+    const userPrompt = `Video title: ${body.title}\nDuration: ${body.durationS ?? 'unknown'} seconds.${chapterDirective}${asrWarning}\n\nTranscript:\n${promptTranscript}${sampledNote}`;
 
     // Scale output budget to expected section count. Be GENEROUS — Gemini 2.5
     // Flash supports up to 65K output tokens; even our biggest realistic

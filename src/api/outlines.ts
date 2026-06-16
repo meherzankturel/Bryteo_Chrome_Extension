@@ -18,6 +18,7 @@ export async function generateOutline(input: {
   thumbnailUrl?: string;
   transcript: string;
   chapters?: Array<{ title: string; start_s: number }>;
+  captionKind?: 'manual' | 'asr' | 'unknown';
 }): Promise<{ videoId: string; outline: OutlinePayload }> {
   const { data, error } = await supabase.functions.invoke('generate-outline', {
     body: input

@@ -16,7 +16,8 @@ describe('parsePlayerResponse', () => {
       channel: 'Andrej Karpathy',
       durationS: 1234,
       thumbnailUrl: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
-      captionUrl: 'https://www.youtube.com/api/timedtext?v=abc123&lang=en'
+      captionUrl: 'https://www.youtube.com/api/timedtext?v=abc123&lang=en',
+      captionKind: 'manual'
     });
   });
 
@@ -24,6 +25,26 @@ describe('parsePlayerResponse', () => {
     const noCaps = { ...fixture, captions: undefined };
     const r = parsePlayerResponse(noCaps);
     expect(r?.captionUrl).toBeNull();
+    expect(r?.captionKind).toBe('unknown');
+  });
+
+  it('marks ASR captions when kind=asr', () => {
+    const asrFixture = {
+      ...fixture,
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [
+            {
+              baseUrl: 'https://www.youtube.com/api/timedtext?v=abc123&lang=en',
+              languageCode: 'en',
+              kind: 'asr'
+            }
+          ]
+        }
+      }
+    };
+    const r = parsePlayerResponse(asrFixture);
+    expect(r?.captionKind).toBe('asr');
   });
 });
 
