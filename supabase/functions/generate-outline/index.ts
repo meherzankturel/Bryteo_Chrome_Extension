@@ -112,6 +112,74 @@ serve(async (req) => {
 
     const model = modelFor(tier);
 
+    // --- Marathon segmentation branch ---
+    // For long unchaptered videos with substantial transcripts, the single
+    // sampled call produces coarse sections (each spanning 10-25 minutes of
+    // content). Instead, split the transcript into ~20-minute virtual segments
+    // and fire one Gemini call per segment in parallel. Wall time stays
+    // ~10-15s even for 6h videos, and each section now reflects ~2-3 minutes
+    // of content instead of an entire act.
+    const isUnchapteredMarathon =
+      (!body.chapters || body.chapters.length === 0) &&
+      (body.durationS ?? 0) >= 60 * 60 &&
+      body.transcript.length > 30_000;
+
+    if (isUnchapteredMarathon) {
+      const segmentSections = await generateOutlineSegmented({
+        model,
+        title: body.title,
+        durationS: body.durationS ?? 0,
+        transcript: body.transcript,
+        captionKind: body.captionKind
+      });
+
+      const normalized = normalizeOutline(
+        { sections: segmentSections },
+        body.durationS ?? 0
+      );
+      const merged = dedupeAdjacentSections(normalized.sections);
+      const validated = outlineResponse.safeParse({ sections: merged });
+      if (!validated.success) {
+        console.error(
+          '[generate-outline] segmented schema failed:',
+          JSON.stringify(validated.error.errors).slice(0, 1000)
+        );
+        return jsonErr('ai_invalid_json', 502);
+      }
+
+      const { data: video, error: vErr } = await sb
+        .from('videos')
+        .upsert(
+          {
+            user_id: user.id,
+            yt_video_id: body.videoId,
+            title: body.title,
+            channel: body.channel,
+            duration_s: body.durationS,
+            thumbnail_url: body.thumbnailUrl
+          },
+          { onConflict: 'user_id,yt_video_id' }
+        )
+        .select()
+        .single();
+      if (vErr || !video) return jsonErr('db_video', 500);
+
+      const { error: oErr } = await sb.from('outlines').upsert(
+        {
+          video_id: video.id,
+          sections: validated.data.sections,
+          model_used: model
+        },
+        { onConflict: 'video_id' }
+      );
+      if (oErr) return jsonErr('db_outline', 500);
+
+      return new Response(
+        JSON.stringify({ videoId: video.id, outline: validated.data }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Sample long transcripts down to a fixed budget so generation time stays
     // ~constant regardless of video length.
     const promptTranscript = sampleTranscript(body.transcript, PROMPT_TRANSCRIPT_CHARS);
@@ -379,4 +447,155 @@ function coerceSeconds(v: any): number {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
+}
+
+// --- Segmented (marathon) generation -----------------------------------------
+
+const SEGMENT_SYSTEM = `You convert a SLICE of a longer YouTube transcript into 2-3 structured outline sections.
+
+Return JSON ONLY, in this exact shape:
+{
+  "sections": [
+    {
+      "title": "Short section title",
+      "summary": "One-paragraph summary of this section.",
+      "start_s": 0,
+      "end_s": 120,
+      "key_points": ["point 1", "point 2", "point 3"]
+    }
+  ]
+}
+
+ACCURACY RULES — non-negotiable:
+- Use ONLY facts explicitly stated in the supplied slice. Do NOT invent context from outside it.
+- If uncertain, omit. Banned hedge words in key_points: "likely", "probably", "might", "may", "perhaps", "supposedly", "appears to".
+- Copy named claims (years, numbers, version numbers, proper nouns) character-for-character.
+- Quote the speaker's own terminology. Don't paraphrase technical terms into easier wording.
+
+STRUCTURE RULES:
+1. Produce 2-3 sections covering the time range you are given.
+2. start_s and end_s MUST be integer seconds inside the supplied [start, end] window — never outside it.
+3. Section titles use the video's actual terminology, never generic labels.
+4. key_points is a non-empty array of 2-4 concrete factual strings, each one short line.
+5. Reply with ONLY the JSON. No prose, no markdown fences.`;
+
+/**
+ * Parallel-segment marathon path. Splits the transcript character-evenly into
+ * N segments (since we don't have per-line timestamps), where N scales with
+ * duration capped at 12. Fires all Gemini calls in parallel, then concatenates
+ * the section arrays into one outline.
+ *
+ * Returned sections are NOT yet schema-validated — caller runs them through
+ * normalizeOutline + outlineResponse.parse + dedupeAdjacentSections.
+ */
+async function generateOutlineSegmented(args: {
+  model: string;
+  title: string;
+  durationS: number;
+  transcript: string;
+  captionKind?: 'manual' | 'asr' | 'unknown';
+}): Promise<any[]> {
+  const SEGMENT_TARGET_S = 20 * 60; // 20 minutes per virtual segment
+  const MAX_SEGMENTS = 12;
+  const numSegments = Math.min(
+    MAX_SEGMENTS,
+    Math.max(2, Math.ceil(args.durationS / SEGMENT_TARGET_S))
+  );
+  const segmentDurationS = Math.floor(args.durationS / numSegments);
+  const transcriptLen = args.transcript.length;
+  const charsPerSegment = Math.floor(transcriptLen / numSegments);
+
+  console.log(
+    `[generate-outline] route=segmented segments=${numSegments} ` +
+      `durationS=${args.durationS}`
+  );
+
+  const asrWarning =
+    args.captionKind === 'asr'
+      ? '\n\nIMPORTANT: This transcript is from YouTube auto-generated captions (ASR). Technical terms, version numbers, proper nouns, and code snippets may be mis-transcribed. If a named claim looks suspicious, omit it rather than guess.'
+      : '';
+
+  const segmentPromises = Array.from({ length: numSegments }, async (_, i) => {
+    const startS = i * segmentDurationS;
+    const endS = i === numSegments - 1 ? args.durationS : (i + 1) * segmentDurationS;
+    const charStart = i * charsPerSegment;
+    const charEnd =
+      i === numSegments - 1 ? transcriptLen : (i + 1) * charsPerSegment;
+    const slice = args.transcript.slice(charStart, charEnd);
+
+    const userPrompt =
+      `Video title: ${args.title}\n` +
+      `This is segment ${i + 1} of ${numSegments}, covering roughly ${startS}s to ${endS}s of the video. ` +
+      `Produce 2-3 sections that cover this time range. ` +
+      `start_s must be >= ${startS} and end_s must be <= ${endS}.${asrWarning}\n\n` +
+      `Transcript slice:\n${slice}`;
+
+    try {
+      const text = await callGemini({
+        model: args.model,
+        system: SEGMENT_SYSTEM,
+        turns: [{ role: 'user', text: userPrompt }],
+        jsonMode: true,
+        // 2-3 sections per call → 1500 tokens is comfortable headroom.
+        maxOutputTokens: 2000
+      });
+      const parsed = JSON.parse(text);
+      const sections = Array.isArray(parsed?.sections) ? parsed.sections : [];
+      // Clamp each section's window to its assigned [startS, endS] band so
+      // overlaps between adjacent segments are minimised.
+      return sections.map((s: any) => ({
+        ...s,
+        start_s: Math.max(startS, coerceSeconds(s?.start_s)),
+        end_s: Math.min(endS, coerceSeconds(s?.end_s) || endS)
+      }));
+    } catch (e: any) {
+      console.error(
+        `[generate-outline] segment ${i + 1}/${numSegments} failed:`,
+        e?.message ?? e
+      );
+      // Soft-fail: drop this segment instead of failing the whole outline.
+      // With 6-12 segments, losing one is much better than losing the
+      // entire 4-hour outline.
+      return [];
+    }
+  });
+
+  const results = await Promise.all(segmentPromises);
+  return results.flat();
+}
+
+/**
+ * If two adjacent sections produced overlapping or identical titles, keep
+ * the first. Cheap stopgap for cases where adjacent Gemini calls produce
+ * similar "Introduction" / "Conclusion" sections at the seam between two
+ * virtual segments.
+ */
+function dedupeAdjacentSections(sections: any[]): any[] {
+  if (sections.length <= 1) return sections;
+  const out: any[] = [sections[0]];
+  for (let i = 1; i < sections.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = sections[i];
+    const same =
+      normTitle(prev?.title) === normTitle(cur?.title) ||
+      // Window overlap of >50% with the previous section also looks like a dup.
+      windowOverlap(prev, cur) > 0.5;
+    if (!same) out.push(cur);
+  }
+  return out;
+}
+
+function normTitle(t: any): string {
+  return typeof t === 'string' ? t.toLowerCase().replace(/\s+/g, ' ').trim() : '';
+}
+
+function windowOverlap(a: any, b: any): number {
+  const aStart = Number(a?.start_s) || 0;
+  const aEnd = Number(a?.end_s) || 0;
+  const bStart = Number(b?.start_s) || 0;
+  const bEnd = Number(b?.end_s) || 0;
+  const overlap = Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+  const shorter = Math.min(aEnd - aStart, bEnd - bStart);
+  if (shorter <= 0) return 0;
+  return overlap / shorter;
 }
