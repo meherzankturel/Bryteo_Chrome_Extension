@@ -48,7 +48,26 @@ export async function generateOutline(input: {
     if (detail?.error === 'ai_invalid_json') {
       throw new Error('AI returned an unexpected response. Try again.');
     }
+    if (detail?.error === 'gemini_timeout') {
+      throw new Error('AI took too long to respond. Try again (might be transient).');
+    }
+    if (detail?.error === 'gemini_truncated') {
+      throw new Error('AI response was cut off. Trying a shorter video may help.');
+    }
+    if (detail?.error === 'ai_blocked') {
+      throw new Error('AI declined to process this content. Try a different video.');
+    }
+    if (detail?.error === 'gemini_api_error' || detail?.error === 'gemini_error') {
+      throw new Error(`AI service error: ${detail?.detail ?? 'unknown'}`);
+    }
+    if (detail?.error === 'rate_limit_db') {
+      throw new Error('Backend rate-limit table error. Push the latest migration.');
+    }
 
+    // Surface raw detail so the user (and the dev) see something useful
+    if (detail?.detail) {
+      throw new Error(`${detail.error ?? 'server'}: ${detail.detail}`);
+    }
     throw new Error(detail?.error ?? error.message ?? 'Server error');
   }
   return data;

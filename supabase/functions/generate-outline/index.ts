@@ -253,10 +253,27 @@ serve(async (req) => {
     return new Response(JSON.stringify({ videoId: video.id, outline: parsed }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
-  } catch (e) {
+  } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error(e);
-    return jsonErr('server_error', 500);
+    const msg = String(e?.message ?? e ?? 'unknown');
+    console.error('[generate-outline] uncaught error:', msg);
+    if (e?.stack) console.error(e.stack.slice(0, 1500));
+
+    // Surface the real reason to the client instead of opaque 'server_error'.
+    // Lets the side-panel UI show actionable text and lets the user (and me)
+    // see what actually failed without round-tripping to dashboard logs.
+    let code = 'server_error';
+    if (msg.includes('Gemini timeout')) code = 'gemini_timeout';
+    else if (msg.includes('Gemini truncated') || msg.includes('MAX_TOKENS')) code = 'gemini_truncated';
+    else if (msg.includes('Gemini blocked') || msg.includes('SAFETY')) code = 'ai_blocked';
+    else if (msg.includes('Gemini API')) code = 'gemini_api_error';
+    else if (msg.includes('Gemini')) code = 'gemini_error';
+    else if (msg.includes('rate_limit_increment')) code = 'rate_limit_db';
+
+    return new Response(
+      JSON.stringify({ error: code, detail: msg.slice(0, 400) }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });
 
